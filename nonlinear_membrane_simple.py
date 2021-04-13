@@ -1,19 +1,14 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
 
 from dolfin import *
 import ufl
-import numpy as np
 import sympy as sp
-import matplotlib.pyplot as plt
+import sympy.printing.ccode as ccode
 from fenicsmembranes.parametric_membrane import *
 from fenics_optim import *
-from fenics_optim.quadratic_cones import get_slice
-
-
+from utils import eigenvalue, eig_vecmat
 
 width = 200
 height = 100
@@ -30,48 +25,53 @@ lamb = E_*nu/(1+nu)/(1-2*nu)
 class Geometry:
     def __init__(self):
         xi_1, xi_2, w, h = sp.symbols('x[0], x[1], w, h')
-        
-        self.mesh = mesh = RectangleMesh(Point(0,0), Point(width, height), 80, 40)
-        if nsd==3:
+
+        self.mesh = mesh = RectangleMesh(Point(0,0),
+                                         Point(width, height), 40, 20)
+        if nsd == 3:
             gamma_sp = [xi_1, xi_2, 0*xi_1]
-        if nsd==2:
+        if nsd == 2:
             gamma_sp = [xi_1, xi_2]
 
-        ccode = lambda z: sp.printing.ccode(z)
         self.gamma = Expression([ccode(val) for val in gamma_sp],
-                            w=width,
-                            h=height,
-                            degree=4)
-        
+                                w=width,
+                                h=height,
+                                degree=4)
+
         # Get the covariant tangent basis
         # G_1 = ∂X/xi^1 = [1, 0, 0]
         self.Gsub1 = Expression([ccode(val.diff(xi_1)) for val in gamma_sp],
-                            w=width,
-                            h=height,
-                            degree=4)
-        
+                                w=width,
+                                h=height,
+                                degree=4)
+
         # G_2 = ∂X/xi^2 = [0, 1, 0]
         self.Gsub2 = Expression([ccode(val.diff(xi_2)) for val in gamma_sp],
-                            w=width,
-                            h=height,
-                            degree=4)
-geo = Geometry()
+                                w=width,
+                                h=height,
+                                degree=4)
+
 
 def bottom(x, on_boundary):
     return near(x[1], 0) and on_boundary
+
+
 def top(x, on_boundary):
     return near(x[1], height) and on_boundary
 
 
 def bcs(self):
-    if nsd==3:
+    if nsd == 3:
         bc = [DirichletBC(self.V, Constant((0., 0,0)), bottom),
               DirichletBC(self.V, Constant((5, 1,0)), top)]
-    
-    if nsd==2:
+
+    if nsd == 2:
         bc = [DirichletBC(self.V, Constant((0., 0)), bottom),
               DirichletBC(self.V, Constant((5, 1)), top)]
     return bc
+
+
+geo = Geometry()
 
 input_dict = {
         'mesh': geo.mesh,
@@ -87,89 +87,6 @@ input_dict = {
 mem = membrane = ParametricMembrane((input_dict))
 
 
-# class INHMembrane(ConvexFunction):
-#     '''
-#     Incompressible neohookean material
-#     psi = (mu/2)(tr(C) + 1/det(C) - 3)
-#     '''
-#     def conic_repr(self, X):
-#         # d>= 1/s^2
-#         s = self.add_var(dim=3, cone=Pow(3,1/3))
-#         d = s[0]
-
-#         # C11*C22 >= C12^2 + s^2
-#         r = self.add_var(dim=4, cone=RQuad(4))
-        
-#         C11 = 2*r[0]
-#         C22 = r[1]
-#         C12 = r[2]
-        
-#         # [X, s, r]
-#         self.add_eq_constraint([None, s[2], None], b=1)
-#         self.add_eq_constraint([None, -s[1], r[3]], b=0)
-#         self.set_linear_term([None, (t*mu/2)*s[0], (t*mu/2)*(C11 + C22)])
-
-#         vect_Z = self.add_var(dim=10, cone=SDP(4))
-        
-#         vect_grad_u_transp = as_vector([0, 0, 0, 0, 0, X[2], 0, X[0], X[1], X[3]])
-#         vect_Cnel = as_vector([-C11, -C22, 0, 0, -C12, 0, 0, 0, 0, 0])
-#         vect_I = as_vector([0, 0, 1, 1, 0, 0, 0, -1, -1, 0])
-    
-#         self.add_eq_constraint([vect_grad_u_transp, None, vect_Cnel, vect_Z], b=vect_I)
-
-class INHMembrane3D(ConvexFunction):
-    '''
-    Incompressible neohookean material
-    psi = (mu/2)(tr(C) + 1/det(C) - 3)
-    '''
-    def conic_repr(self, X):
-        Gsub1=geo.Gsub1
-        Gsub2 =geo.Gsub2
-        
-        # d>= 1/s^2
-        s = self.add_var(dim=3, cone=Pow(3,1/3))
-        d = s[0]
-
-        # C11*C22 >= C12^2 + s^2
-        r = self.add_var(dim=4, cone=RQuad(4))
-        
-        C11 = 2*r[0]
-        C22 = r[1]
-        C12 = r[2]
-        self.C_elastic = as_tensor([[C11,C12], [C12,C22]])
-        
-        # [X, s, r]
-        self.add_eq_constraint([None, s[2], None], b=1)
-        self.add_eq_constraint([None, -s[1], r[3]], b=0)
-        self.set_linear_term([None, (t*mu/2)*s[0], (t*mu/2)*(C11 + C22)])
-
-        if nsd==2:
-            vect_Z = self.add_var(dim=10, cone=SDP(4))
-        
-            vect_grad_u_transp = as_vector([0, 0, 0, 0, 0, X[2], 0, X[0], X[1], X[3]])
-            vect_Cnel = as_vector([-C11, -C22, 0, 0, -C12, 0, 0, 0, 0, 0])
-            vect_I = as_vector([0, 0, 1, 1, 0, 0, 0, -1, -1, 0])
-            
-        if nsd==3:
-            vect_Z = self.add_var(dim=15, cone=SDP(5))
-            
-            vect_grad_u_transp = as_vector([0, 0, 0, 0, 0,
-                                            0, X[3], 0, 0, 
-                                            X[0], X[4], 0, 
-                                            X[1], X[5],
-                                            X[2]])
-            vect_Cnel = as_vector([-C11, -C22, 0, 0, 0, 
-                                   -C12, 0, 0, 0, 
-                                   0, 0, 0, 
-                                   0, 0, 
-                                   0])
-            vect_I = as_vector([0, 0, 1, 1, 1,
-                                0, -Gsub2[0], 0, 0,
-                                -Gsub1[0], -Gsub2[1], 0, 
-                                -Gsub1[1], -Gsub2[2],
-                                -Gsub1[2]])
-        
-        self.add_eq_constraint([vect_grad_u_transp, None, vect_Cnel, vect_Z], b=vect_I)
 # In[ ]:
 
 
@@ -177,7 +94,7 @@ class INHMembrane3D(ConvexFunction):
 # prob = MosekProblem("No-compression membrane model")
 # membrane.u = prob.add_var(V, bc=bc)
 
-
+# 2D 
 # G = as_vector([u[0].dx(0), u[1].dx(1), u[0].dx(1), u[1].dx(0)])
 
 # energy = INHMembrane(G, degree=2)
@@ -198,7 +115,8 @@ u = membrane.u
 G = as_vector([u[0].dx(0), u[1].dx(0), u[2].dx(0), \
                u[0].dx(1), u[1].dx(1), u[2].dx(1)])
 
-energy = INHMembrane3D(G, degree=2)
+from materials.INH import INHMembrane
+energy = INHMembrane(G, mem, degree=2)
 prob.add_convex_term(energy)
 prob.parameters["presolve"] = True
 prob.optimize()
@@ -207,67 +125,9 @@ membrane.io.write_fields()
 
 
 # In[46]:
-
-
-def eigenvalue(A):
-    ''' ufl eigenvalues of 2x2 tensor '''
-    assert A.ufl_shape == (2,2)
-    I1 = tr(A)
-    I2 = det(A)
-    # delta = sqrt(I1**2 - 4*I2)
-    Q = 0.25*I1**2 - I2
-    delta = conditional(gt(abs(Q), DOLFIN_EPS_LARGE),
-                            sqrt(Q), 0)
-    l1 = I1/2 + delta
-    l2 = I1/2 - delta
-    return l1, l2
-
-
-
-
-
-
-
-def eig_vecmat(A):
-    tol = DOLFIN_EPS_LARGE#*1000
-    print(tol)
-    ''' eigenvectors of 2x2 tensor 
-    if c != 0, [l1-d,c], [l2-d,c]
-    elif b != 0, [b, l1-a], [b, l2-a]
-    else [1,0], [0,1]
-    '''
-    assert A.ufl_shape == (2,2)
-    l1, l2 = eigenvalue(A)    
-    # print(project(l1, mem.Vs)(pt))
-    # print(project(l2, mem.Vs)(pt))
-    a = A[0,0] 
-    b = A[0,1] 
-    c = A[1,0] 
-    d = A[1,1]
-    
-    v1 = conditional(gt(abs(c), tol),
-                        as_vector([l1-d, c]),
-                        conditional(gt(abs(b), tol),
-                                    as_vector([b, l1 - a]), 
-                                    as_vector([1, 0])))
-    v2 = conditional(gt(abs(c), tol),
-                        as_vector([l2-d, c]),
-                        conditional(gt(abs(b), tol),
-                                    as_vector([b, l2 - a]), 
-                                    as_vector([0, 1])))
-    v1 = v1/sqrt(dot(v1,v1))
-    v2 = v2/sqrt(dot(v2,v2))
-
-    return v1, v2
-
-
-# In[49]:
-
 E = membrane.E
 E_el = 0.5*(energy.C_elastic - membrane.C_0)
-
 E_w = -(E - E_el)
-
 
 
 def write_eigval(A, l1_name, l2_name):

@@ -1,0 +1,17 @@
+*__pycache__*
+*.sh
+*.docx
+*.pyc
+.DS_Store
+.log
+.spyproject
+
+*.xdmf
+*.h5
+*.pvd
+*.vtu
+
+*.pdf
+*.csv
+*.pkl
+jitfailure*
