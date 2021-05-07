@@ -27,7 +27,6 @@ class KannoIsotropic:
     lamb_bar = 2*lamb*mu/(lamb+2*mu)
 
 
-
 class KannoOrthotropic:
     E1 = 1E5
     E2 = 10E5
@@ -40,3 +39,13 @@ class KannoOrthotropic:
     C = np.linalg.inv(C)
 
 
+def C(lamb, mu):
+    return np.array([[lamb+2*mu, lamb, 0],
+                     [lamb, lamb+2*mu, 0],
+                     [0, 0, mu]])
+
+
+def C_plane_stress(E, nu):
+    return (E/(1-nu**2))*np.array([[1, nu, 0],
+                                   [nu, 1, 0],
+                                   [0, 0, (1-nu)/2]])
