@@ -9,6 +9,7 @@ Created on Thu May 13 15:03:21 2021
 import unittest
 from dolfin import UnitSquareMesh, as_matrix, sqrt, assemble, inner, dx
 from wrinkle.utils import as_block_matrix
+import numpy as np
 
 
 class TestBlockMatrix(unittest.TestCase):
@@ -25,20 +26,24 @@ class TestBlockMatrix(unittest.TestCase):
         # Test with non-symmetric matrix:
         M = self.M
         test = as_block_matrix([[M, -M],
-                                [-M, M]])
+                                [-M, M.T]])
 
         desired = as_matrix([[M[0, 0], M[0, 1],   -M[0, 0], -M[0, 1]],
                              [M[1, 0], M[1, 1],   -M[1, 0], -M[1, 1]],
 
-                             [-M[0, 0], -M[0, 1],  M[0, 0], M[0, 1]],
-                             [-M[1, 0], -M[1, 1],  M[1, 0], M[1, 1]]])
+                             [-M[0, 0], -M[0, 1],  M[0, 0], M[1, 0]],
+                             [-M[1, 0], -M[1, 1],  M[0, 1], M[1, 1]]])
         err = test - desired
         self.assertEqual(sqrt(assemble(inner(err, err)*dx(domain=self.mesh))),
                          0, 'The arrays are not equal!')
 
     def test_non_square_matrix(self):
         # Test with non-square matrix:
-        F = self.F
+        from dolfin import VectorFunctionSpace, Function, grad
+        V = VectorFunctionSpace(self.mesh, 'CG', 1, dim=3)
+        u = Function(V)
+        u.vector()[:] = np.random.normal(size=V.dim())
+        F = grad(u)
         test = as_block_matrix([[F, -F],
                                 [-F, F]])
         desired = as_matrix([[F[0, 0], F[0, 1],   -F[0, 0], -F[0, 1]],
@@ -93,7 +98,7 @@ class TestBlockMatrix(unittest.TestCase):
         des = project(desired, V)(.5, .5)
         act = project(test, V)(.5, .5)
         errmsg = f'The arrays are not equal! Desired={print(des)}, \n \
-            actual={print(act)}'
+                    actual={print(act)}'
         self.assertEqual(sqrt(assemble(inner(err, err)*dx(domain=self.mesh))),
                          0, errmsg)
 

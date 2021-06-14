@@ -83,6 +83,9 @@ def as_block_matrix(mlist):
     return as_matrix(rows)
 
 
+def block_to_vect(mlist):
+    return to_vect(as_block_matrix(mlist))
+
 # def diagonalize(A):
 #     '''fenics_optim.to_vect spans lower diagonal'''
 #     ROW, COL = np.shape(A)
