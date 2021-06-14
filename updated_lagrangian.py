@@ -16,7 +16,7 @@ from materials.INH import INHMembrane
 from materials.svk import *
 import sympy as sp
 import sympy.printing.ccode as ccode
-
+from test_trilinear_tools import*
 
 class Cylinder():
     def __init__(self, radius, length=1):
@@ -88,7 +88,7 @@ membrane.inflate(p)
 
 print("Total Potential:", assemble(membrane.Pi - p/3*dot(membrane.gsub3, membrane.u+membrane.gamma)*dx(membrane.mesh)))
 print("Elastic Potential:", assemble(membrane.Pi))
-print("Volume:", membrane.calculate_volume(membrane.u))
+print("Volume:", float(membrane.calculate_volume(membrane.u)))
 # Next compute analytical plane strain result
 if input_dict['Boundary Conditions'] == 'Roller':
     computed_stretches = project(membrane.l1, membrane.Vs).compute_vertex_values(membrane.mesh)
@@ -144,44 +144,95 @@ input_dict = {
         'cylindrical': True,
         'output_file_path': 'updated_lagrangian',
         'pressure': p,
-        'Boundary Conditions': 'Capped'}
+        'Boundary Conditions': 'Roller'}
 
 mem = ParametricMembrane((input_dict))
-#%% 2) Newton solve, update u, g_3
+##%% 2) Newton solve, update u, g_3
 mem.inflate(p)
 mem.io.write_fields()
+   
+    
 print("Elastic Potential:", assemble(mem.Pi))
 print("Volume:", float(mem.calculate_volume(mem.u)))
-#%% 3) Begin trilinearization loop
+##%% 3) Begin trilinearization loop
 PI_INT = []
 VOL = []
+NORM_u = [norm(mem.u)]
+
 PI_INT.append(assemble(mem.Pi))
 VOL.append(float(mem.calculate_volume(mem.u)))
+
+
+
 gsub1 = project(mem.gsub1, mem.V)
 gsub2 = project(mem.gsub2, mem.V)
 gsub3 = project(mem.gsub3, mem.V)
+NORM_g1 = [norm(gsub1)]
+NORM_g2 = [norm(gsub2)]
+NORM_g3 = [norm(gsub3)]
+mem.u.vector()[:]=0
+gsub1 = project(mem.gsub1, mem.V)
+gsub2 = project(mem.gsub2, mem.V)
+gsub3 = project(mem.gsub3, mem.V)
+u = mem.u
+
+
+if input_dict['Boundary Conditions'] == 'Roller':
+    front_bd = CompiledSubDomain("(near(x[1], 0) && on_boundary)")
+    back_bd = CompiledSubDomain("(near(x[1], 1) && on_boundary)")
+    mesh_func = MeshFunction("size_t", mem.mesh, mem.mesh.topology().dim()-1)
+    front_bd.mark(mesh_func, 1)
+    back_bd.mark(mesh_func, 2)
+    mem.ds = Measure('ds', domain=mem.mesh, subdomain_data=mesh_func)
+    
+    pos = mem.get_position()
+    x = mem.gamma[0] + u[0] #pos[0]
+    y = mem.gamma[2] + u[2]
+    area_back = -0.5*(x*mem.gsub1[2] - y*mem.gsub1[0])*mem.ds(2)
+    # area_back_gamma = -0.5*(mem.gamma[0]*gsub1[2] - mem.gamma[2]*gsub1[0])*mem.ds(2)
+    # area_back_u = -0.5*(u[0]*gsub1[2] - u[2]*gsub1[0])*mem.ds(2)
+    dV = geo.l/3*(area_back)
+    dV_roller_terms = [ -0.5*(mem.gamma[0]*gsub1[2])*mem.ds(2),
+                       0.5*(mem.gamma[2]*gsub1[0])*mem.ds(2),
+                       -0.5*(u[0]*gsub1[2])*mem.ds(2),
+                       0.5*(u[2]*gsub1[0])*mem.ds(2)]
+    dV_roller_terms = [geo.l/3*d for d in dV_roller_terms]
+    np.testing.assert_almost_equal(assemble((1/3)*dot(mem.gamma+mem.u, mem.gsub3)*dx(mem.mesh))+ sum([assemble(d) for d in dV_roller_terms]), VOL[0], decimal=5)
+else:
+    dV=0
+
 #%% 3a) linear in u
 
-for i in range(2):
-    
+P = np.linspace(0,1,9)*p
+P = np.concatenate((P,np.ones(5)*7), axis=None)
+for i in range(len(P)):
+    p = P[i]
+
     prob = MosekProblem("No-compression membrane model")
     u__ = prob.add_var(mem.V, bc=mem.bc)
-    prob.var[0] = mem.u   # replace
-    u = mem.u
-    
-    if mat == 'SVK':
-        # energy = SVKMembraneLIN_u(u, mem, bm.lamb, bm.mu, gsub1=gsub1, gsub2=gsub2, degree=2)
-        energy = SVKMembrane(u, mem, bm.lamb, bm.mu, degree=2)
-        prob.add_convex_term(Constant(bm.t)*mem.J_A*energy)
-    else:
-        energy = INHMembrane(u, mem, degree=2)
-        prob.add_convex_term(mem.J_A*Constant(bm.t*bm.mu/2)*energy)
+    prob.var[0] = u
+
+    # energy = SVKMembraneLIN_u(u, mem, bm.lam1b, bm.mu, gsub1=gsub1, gsub2=gsub2, degree=2)
+    energy = SVKMembrane(u, mem, bm.lamb, bm.mu, degree=2)
+    prob.add_convex_term(Constant(bm.t)*mem.J_A*energy)
+
         
     # Volume terms
     dV1 = Constant(1/3)*dot(u, gsub3)*dx(mem.mesh)
     dV2 = Constant(1/3)*dot(mem.gamma, gsub3)*dx(mem.mesh)
-    prob.add_obj_func(-Constant(p)*dV1)
-    prob.add_obj_func(-Constant(p)*dV2)
+    DV1 = expand_ufl(dot(mem.gamma, cross(gsub1,mem.Gsub2+u.dx(1))))
+    DV2 = expand_ufl(dot(mem.gamma, cross(mem.Gsub1+u.dx(0),gsub2)))
+    
+    prob.add_obj_func(-p*dV1)
+    # prob.add_obj_func(-p*dV2)
+    for d in DV1:
+        prob.add_obj_func(-Constant(p/3)*d*dx(mem.mesh))
+    for d in DV2:
+        prob.add_obj_func(-Constant(p/3)*d*dx(mem.mesh))
+    if input_dict['Boundary Conditions'] == 'Roller':
+        for d in dV_roller_terms:
+            prob.add_obj_func(-Constant(p)*d)
+            
     prob.parameters["presolve"] = True
     prob.optimize()
     mem.io.write_fields()
@@ -190,35 +241,33 @@ for i in range(2):
     PI_INT.append(Pi_int)
     print("Elastic Potential:", Pi_int)
     
-    vol = assemble(dV1+ dV2)
+    vol = assemble(dV1 + dV2 + dV)
     VOL.append(vol)
     print("Volume:", vol)
-    
+    print("Check Volume:", float(mem.calculate_volume(u)))
+    # np.testing.assert_almost_equal(vol, float(mem.calculate_volume(mem.u)))
     # Update
     gsub1 = project(mem.gsub1, mem.V)
     gsub2 = project(mem.gsub2, mem.V)
     gsub3 = project(mem.gsub3, mem.V)
+    NORM_u.append(norm(u))
+    NORM_g1.append(norm(gsub1))
+    NORM_g2.append(norm(gsub2))
+    NORM_g3.append(norm(gsub3))
     
-##%% 3b) linear in g_1, fixed u , g_2
+#%% 3b) linear in g_1, fixed u , g_2
 
 
 # for i in range(1):
-    u = mem.u
-    gsub2 = project(mem.gsub2, mem.V)
-
     prob = MosekProblem("No-compression membrane model")
     
     g1 = prob.add_var(mem.V, bc=mem.bc)
     
-    if mat == 'SVK':
-        energy = SVKMembraneLIN_g1(g1, mem, bm.lamb, bm.mu, gsub2=gsub2, degree=2)
-        prob.add_convex_term(Constant(bm.t)*mem.J_A*energy)
-    else:
-        energy = INHMembrane(u, mem, degree=2)
-        prob.add_convex_term(mem.J_A*Constant(bm.t*bm.mu/2)*energy)
+    energy = SVKMembraneLIN_g1(g1, mem, bm.lamb, bm.mu, gsub2=mem.gsub2, degree=2)
+    prob.add_convex_term(Constant(bm.t)*mem.J_A*energy)
         
     # Volume terms    
-    g3_list = my_cross(g1, gsub2)
+    g3_list = my_cross(g1, mem.gsub2)
 
     DV1 = my_dot(u, g3_list)
     DV2 = my_dot(mem.gamma, g3_list)
@@ -227,52 +276,55 @@ for i in range(2):
         prob.add_obj_func(-Constant(p/3)*d*dx(mem.mesh))
     for d in DV2:
         prob.add_obj_func(-Constant(p/3)*d*dx(mem.mesh))
-    
+    if input_dict['Boundary Conditions'] == 'Roller':
+        for d in dV_roller_terms:
+            prob.add_obj_func(-Constant(p)*d)
+
     prob.parameters["presolve"] = True
     prob.optimize()
     mem.io.write_fields()
     
     
-    u_ = TrialFunction(mem.V)
     gradu1 = g1 - mem.Gsub1
-    gradu2 = u.dx(1)
+    gradu2 = u.dx(1) #project(u.dx(1), mem.V)
     f = as_tensor([gradu1, gradu2]).T
-    
-    a = inner(grad(u_), grad(mem.v))*dx(mem.mesh)
-    L = inner(f, grad(mem.v))*dx(mem.mesh)
-    solve(a==L, mem.u, mem.bc)
+    u.assign(inverse_grad(f, u, mem.bc))
     mem.io.write_fields()
     
-    dV1 = Constant(1/3)*dot(u, gsub3)*dx(mem.mesh)
-    dV2 = Constant(1/3)*dot(mem.gamma, gsub3)*dx(mem.mesh)
+    dV1 = Constant(1/3)*dot(u, cross(g1,gsub2))*dx(mem.mesh)
+    dV2 = Constant(1/3)*dot(mem.gamma, cross(g1,gsub2))*dx(mem.mesh)
     
     Pi_int = assemble(mem.Pi)
     PI_INT.append(Pi_int)
     print("Elastic Potential:", Pi_int)
     
-    vol = assemble(dV1+ dV2)
+    vol = assemble(dV1 + dV2 + dV)
     VOL.append(vol)
     print("Volume:", vol)
+    print("Check Volume:", float(mem.calculate_volume(u)))
+    gsub1 = project(mem.gsub1, mem.V)
+    gsub3 = project(mem.gsub3, mem.V)
+    NORM_u.append(norm(u))
+    NORM_g1.append(norm(gsub1))
+    NORM_g2.append(norm(gsub2))
+    NORM_g3.append(norm(gsub3))
+    
+
     
 ## %% 3c) linear in g2, fix u, g1
 # for i in range(1):
-    u = mem.u
-    gsub1 = project(mem.gsub1, mem.V)
+
 
     prob = MosekProblem("No-compression membrane model")
     
     g2 = prob.add_var(mem.V, bc=mem.bc)
     
-    if mat == 'SVK':
-        energy = SVKMembraneLIN_g1(g2, mem, bm.lamb, bm.mu, gsub1=gsub1, degree=2)
-        prob.add_convex_term(Constant(bm.t)*mem.J_A*energy)
-    else:
-        energy = INHMembrane(u, mem, degree=2)
-        prob.add_convex_term(mem.J_A*Constant(bm.t*bm.mu/2)*energy)
+    energy = SVKMembraneLIN_g1(g2, mem, bm.lamb, bm.mu, gsub1=mem.gsub1, degree=2)
+    prob.add_convex_term(Constant(bm.t)*mem.J_A*energy)
+
         
     # Volume terms
     g3_list = my_cross(gsub1, g2)
-
     DV1 = my_dot(u, g3_list)
     DV2 = my_dot(mem.gamma, g3_list)
     
@@ -281,36 +333,41 @@ for i in range(2):
     for d in DV2:
         prob.add_obj_func(-Constant(p/3)*d*dx(mem.mesh))
 
-    
+    if input_dict['Boundary Conditions'] == 'Roller':
+        for d in dV_roller_terms:
+            prob.add_obj_func(-Constant(p)*d)
+
     prob.parameters["presolve"] = True
     prob.optimize()
     mem.io.write_fields()
     
-    u_ = TrialFunction(mem.V)
-    gradu1 = u.dx(0)
+    gradu1 = u.dx(0) #project(u.dx(0), mem.V)
     gradu2 = g2 - mem.Gsub2
     f = as_tensor([gradu1, gradu2]).T
-    
-    a = inner(grad(u_), grad(mem.v))*dx(mem.mesh)
-    L = inner(f, grad(mem.v))*dx(mem.mesh)
-    solve(a==L, mem.u, mem.bc)
+    u.assign(inverse_grad(f, u, mem.bc))
     mem.io.write_fields()
     
-    dV1 = Constant(1/3)*dot(u, gsub3)*dx(mem.mesh)
-    dV2 = Constant(1/3)*dot(mem.gamma, gsub3)*dx(mem.mesh)
+    dV1 = Constant(1/3)*dot(u, cross(gsub1,g2))*dx(mem.mesh)
+    dV2 = Constant(1/3)*dot(mem.gamma, cross(gsub1,g2))*dx(mem.mesh)
     
     Pi_int = assemble(mem.Pi)
     PI_INT.append(Pi_int)
     print("Elastic Potential:", Pi_int)
     
-    vol = assemble(dV1+ dV2)
+    vol = assemble(dV1 + dV2 + dV)
     VOL.append(vol)
     print("Volume:", vol)
-    
+    print("Check Volume:", float(mem.calculate_volume(mem.u)))
+
         # Update
-    gsub1 = project(mem.gsub1, mem.V)
-    gsub2 = project(mem.gsub2, mem.V)
-    gsub3 = project(mem.gsub3, mem.V)
+    # gsub1 = project(mem.gsub1, mem.V)
+    gsub2 = project(g2, mem.V)
+    # gsub3 = project(mem.gsub3, mem.V)
+    
+    NORM_u.append(norm(u))
+    NORM_g1.append(norm(gsub1))
+    NORM_g2.append(norm(project(g2,mem.V)))
+    NORM_g3.append(norm(gsub3))
 #%%
 fig, ax = plt.subplots(1,2)
 ax[0].plot(PI_INT, '-*', label = 'Pi_int')
@@ -319,6 +376,18 @@ ax[0].axhline(y=PI_INT[0])
 ax[1].plot(VOL, '-*',label = 'volume')
 ax[1].legend()
 ax[1].axhline(y=VOL[0])
+
+fig, ax = plt.subplots(1,2)
+ax[0].plot(NORM_u, '-*', label = '|u|')
+ax[0].legend()
+ax[0].axhline(y=NORM_u[0])
+ax[1].plot(NORM_g1, '-*',label = 'g1')
+ax[1].plot(NORM_g2, '-*',label = 'g2')
+ax[1].plot(NORM_g3, '-*',label = 'g3')
+ax[1].legend()
+ax[1].axhline(y=NORM_g1[0])
+ax[1].axhline(y=NORM_g2[0])
+ax[1].axhline(y=NORM_g3[0])
 #%%
 class Volume(ConvexFunction):
 
