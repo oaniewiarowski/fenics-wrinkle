@@ -170,11 +170,12 @@ gsub3 = project(mem.gsub3, mem.V)
 NORM_g1 = [norm(gsub1)]
 NORM_g2 = [norm(gsub2)]
 NORM_g3 = [norm(gsub3)]
-mem.u.vector()[:]=0
-gsub1 = project(mem.gsub1, mem.V)
-gsub2 = project(mem.gsub2, mem.V)
-gsub3 = project(mem.gsub3, mem.V)
+# mem.u.vector()[:]=0
+# gsub1 = project(mem.gsub1, mem.V)
+# gsub2 = project(mem.gsub2, mem.V)
+# gsub3 = project(mem.gsub3, mem.V)
 u = mem.u
+u_old = Function(mem.V)
 
 
 if input_dict['Boundary Conditions'] == 'Roller':
@@ -186,27 +187,29 @@ if input_dict['Boundary Conditions'] == 'Roller':
     mem.ds = Measure('ds', domain=mem.mesh, subdomain_data=mesh_func)
     
     pos = mem.get_position()
-    x = mem.gamma[0] + u[0] #pos[0]
+    x = mem.gamma[0] + u[0]
     y = mem.gamma[2] + u[2]
     area_back = -0.5*(x*mem.gsub1[2] - y*mem.gsub1[0])*mem.ds(2)
-    # area_back_gamma = -0.5*(mem.gamma[0]*gsub1[2] - mem.gamma[2]*gsub1[0])*mem.ds(2)
-    # area_back_u = -0.5*(u[0]*gsub1[2] - u[2]*gsub1[0])*mem.ds(2)
-    dV = geo.l/3*(area_back)
-    dV_roller_terms = [ -0.5*(mem.gamma[0]*gsub1[2])*mem.ds(2),
-                       0.5*(mem.gamma[2]*gsub1[0])*mem.ds(2),
-                       -0.5*(u[0]*gsub1[2])*mem.ds(2),
-                       0.5*(u[2]*gsub1[0])*mem.ds(2)]
+    # area_back = x*mem.gsub1[2] - y*mem.gsub1[0]
+
+    dV = Constant(geo.l/3)*(area_back)
+    dV_roller_terms = [-0.5*(mem.gamma[0]*gsub1[2])*mem.ds(2),
+                        -0.5*(u[0]*gsub1[2])*mem.ds(2),
+                        0.5*(mem.gamma[2]*gsub1[0])*mem.ds(2),
+                        0.5*(u[2]*gsub1[0])*mem.ds(2)]
+
+    # dV_roller_terms = expand_ufl(dV_roller_terms)
     dV_roller_terms = [geo.l/3*d for d in dV_roller_terms]
-    np.testing.assert_almost_equal(assemble((1/3)*dot(mem.gamma+mem.u, mem.gsub3)*dx(mem.mesh))+ sum([assemble(d) for d in dV_roller_terms]), VOL[0], decimal=5)
+    np.testing.assert_almost_equal(assemble((1/3)*dot(mem.gamma+mem.u, mem.gsub3)*dx(mem.mesh))+ sum([assemble(d) for d in dV_roller_terms]), float(mem.calculate_volume(mem.u)), decimal=5)
 else:
     dV=0
 
 #%% 3a) linear in u
 
 P = np.linspace(0,1,9)*p
-P = np.concatenate((P,np.ones(5)*7), axis=None)
+# P = np.concatenate((P,np.ones(5)*7), axis=None)
 for i in range(len(P)):
-    p = P[i]
+    p = 7
 
     prob = MosekProblem("No-compression membrane model")
     u__ = prob.add_var(mem.V, bc=mem.bc)
@@ -220,18 +223,44 @@ for i in range(len(P)):
     # Volume terms
     dV1 = Constant(1/3)*dot(u, gsub3)*dx(mem.mesh)
     dV2 = Constant(1/3)*dot(mem.gamma, gsub3)*dx(mem.mesh)
-    DV1 = expand_ufl(dot(mem.gamma, cross(gsub1,mem.Gsub2+u.dx(1))))
-    DV2 = expand_ufl(dot(mem.gamma, cross(mem.Gsub1+u.dx(0),gsub2)))
+    
+    u_old_x_u1 = expand_ufl(dot(u_old, cross(mem.Gsub1 + u.dx(0),gsub2)))
+    u_old_x_u2 = expand_ufl(dot(u_old, cross(gsub1,mem.Gsub2 + u.dx(1))))
+    
+    gamma_x_u1 = expand_ufl(dot(mem.gamma, cross(mem.Gsub1+u.dx(0),gsub2)))
+    gamma_x_u2 = expand_ufl(dot(mem.gamma, cross(gsub1,mem.Gsub2+u.dx(1))))
+    
+    gsub1_2 = (mem.Gsub1[2] + u[2].dx(0))
+    gsub1_0 = (mem.Gsub1[0] + u[0].dx(0))
+    ###
+    X = mem.gamma[0]
+    Z = mem.gamma[2]
+    G1 = mem.Gsub1
+    expanded = (X*G1[2] + X*u[2].dx(0) + u[0]*G1[2] + u[0]*(gsub1[2]-G1[2]) -Z*G1[0] -Z*u[0].dx(0) - u[2]*G1[0] - u[2]*(gsub1[0]-G1[0]) + u_old[0]*u[2].dx(0) -u_old[2]*u[0].dx(0))
+    
+    # dV_roller_terms = -0.5*(x*gsub1_2 - y*gsub1_0)
+    # dV_roller_terms = [-0.5*(mem.gamma[0]*(mem.Gsub1[2] + u[2].dx(0))),
+    #                     -0.5*(u[0]*(mem.Gsub1[2] + u[2].dx(0))),
+    #                     0.5*(mem.gamma[2]*(mem.Gsub1[0] + u[0].dx(0))),
+    #                     0.5*(u[2]*(mem.Gsub1[0] + u[0].dx(0)))]
+    dV_roller_terms = expand_ufl(expanded)
+    dV_roller_terms = [-.5*geo.l/3*d for d in dV_roller_terms]
     
     prob.add_obj_func(-p*dV1)
-    # prob.add_obj_func(-p*dV2)
-    for d in DV1:
+    # prob.add_obj_func(-p*dV2)  # constant
+    
+    for d in u_old_x_u1:
         prob.add_obj_func(-Constant(p/3)*d*dx(mem.mesh))
-    for d in DV2:
+    for d in u_old_x_u2:
+        prob.add_obj_func(-Constant(p/3)*d*dx(mem.mesh))
+    for d in gamma_x_u1:
+        prob.add_obj_func(-Constant(p/3)*d*dx(mem.mesh))
+    for d in gamma_x_u2:
         prob.add_obj_func(-Constant(p/3)*d*dx(mem.mesh))
     if input_dict['Boundary Conditions'] == 'Roller':
         for d in dV_roller_terms:
-            prob.add_obj_func(-Constant(p)*d)
+            # prob.add_obj_func(-Constant(p)*d)
+            prob.add_obj_func(-Constant(p)*d*mem.ds(2))
             
     prob.parameters["presolve"] = True
     prob.optimize()
@@ -254,7 +283,8 @@ for i in range(len(P)):
     NORM_g1.append(norm(gsub1))
     NORM_g2.append(norm(gsub2))
     NORM_g3.append(norm(gsub3))
-    
+
+    u_old.assign(u)
 #%% 3b) linear in g_1, fixed u , g_2
 
 
@@ -369,7 +399,8 @@ for i in range(len(P)):
     NORM_g2.append(norm(project(g2,mem.V)))
     NORM_g3.append(norm(gsub3))
 #%%
-fig, ax = plt.subplots(1,2)
+fig, ax = plt.subplots(1,2,)
+fig.suptitle(input_dict['Boundary Conditions'])
 ax[0].plot(PI_INT, '-*', label = 'Pi_int')
 ax[0].legend()
 ax[0].axhline(y=PI_INT[0])
@@ -378,6 +409,7 @@ ax[1].legend()
 ax[1].axhline(y=VOL[0])
 
 fig, ax = plt.subplots(1,2)
+fig.suptitle(input_dict['Boundary Conditions'])
 ax[0].plot(NORM_u, '-*', label = '|u|')
 ax[0].legend()
 ax[0].axhline(y=NORM_u[0])
