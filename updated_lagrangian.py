@@ -69,19 +69,21 @@ p=7
 # mesh = UnitSquareMesh(N, N)
 r=1
 geo = Cylinder(r)
+# mat = 'SVK'
+mat = 'Incompressible NeoHookean'
 #%% Conventional solve
 input_dict = {
         # 'mesh': mesh,
         'resolution': [20,20],
         'geometry': geo,
         'thickness': bm.t,
-        'material': 'SVK',
+        'material': mat,
         'mu': bm.mu,
         'lmbda': bm.lamb,
         'cylindrical': True,
         'output_file_path': 'updated_lagrangian_check',
         'pressure': p,
-        'Boundary Conditions': 'Capped'}
+        'Boundary Conditions': 'Roller'}
 
 membrane = ParametricMembrane((input_dict))
 membrane.inflate(p)
@@ -133,7 +135,7 @@ if input_dict['Boundary Conditions'] == 'Roller':
 
 
 #%% 1) Convex problem setup
-mat = 'SVK'
+
 input_dict = {
         'resolution': [20,20],
         'geometry': geo,
@@ -216,9 +218,12 @@ for i in range(len(P)):
     prob.var[0] = u
 
     # energy = SVKMembraneLIN_u(u, mem, bm.lam1b, bm.mu, gsub1=gsub1, gsub2=gsub2, degree=2)
-    energy = SVKMembrane(u, mem, bm.lamb, bm.mu, degree=2)
-    prob.add_convex_term(Constant(bm.t)*mem.J_A*energy)
-
+    if mat =='SVK':
+        energy = SVKMembrane(u, mem, bm.lamb, bm.mu, degree=2)
+        prob.add_convex_term(Constant(bm.t)*mem.J_A*energy)
+    if mat =='Incompressible NeoHookean':
+        energy = INHMembrane(u, mem, degree=2)
+        prob.add_convex_term(bm.t*bm.mu/2*mem.J_A*energy)
         
     # Volume terms
     dV1 = Constant(1/3)*dot(u, gsub3)*dx(mem.mesh)
