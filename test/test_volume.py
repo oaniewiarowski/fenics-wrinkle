@@ -6,75 +6,26 @@ Created on Tue Jun 15 14:22:42 2021
 @author: alexanderniewiarowski
 """
 
-# class VolumePotential():
-    
-#     def __init__(self, ):
 import unittest
 from dolfin import *
-from fenics_optim import *
-from fenics_optim.quadratic_cones import get_slice
 from fenicsmembranes.parametric_membrane import *
 import matplotlib.pyplot as plt
 import numpy as np
 from bm_data import *
-from materials.INH import INHMembrane
-from materials.svk import *
-import sympy as sp
-import sympy.printing.ccode as ccode
 from test_trilinear_tools import*
 
-
-class Cylinder():
-    def __init__(self, radius, length=1):
-        self.t = length
-        self.r = radius
-        self.l = length
-        Area = -0.5*radius**2
-        self.vol_correct = (Area*self.l/3) #TODO make sure this is loaded, currently, the vol_correct is assigned based on BC and incorrect (==0)
-
-        x1, x2, r, l = sp.symbols('x[0], x[1], r, l')
-
-        X = r*sp.cos((1-x1)*sp.pi)
-        Y = l*x2
-        Z = r*sp.sin((1-x1)*sp.pi)
-        
-        gamma_sp = [X, Y, Z]
-
-        gamma = Expression([ccode(val) for val in gamma_sp],
-                           r=radius,
-                           l=length,
-                           pi=pi,
-                           degree=4)
-        
-        # G_1 = ∂X/xi^1
-        Gsub1 = Expression([ccode(val.diff(x1)) for val in gamma_sp],
-                           r=radius,
-                           l=length,
-                           pi=pi,
-                           degree=4)
-
-        # G_2 = ∂X/xi^2
-        Gsub2 = Expression([ccode(val.diff(x2)) for val in gamma_sp],
-                           r=radius,
-                           l=length,
-                           pi=pi,
-                           degree=4)
-
-        self.gamma = gamma
-        self.Gsub1 = Gsub1
-        self.Gsub2 = Gsub2
-        self.l = length
-
+from geometry import Cylinder
 
 bm = KannoIsotropic()
 p = 7
 geo = Cylinder(1)
 
+
 class TestVolumePotential:#(unittest.TestCase):
     def __init__(self):
 
         self.input_dict = {
-                    'resolution': [20,20],
+                    'resolution': [20, 20],
                     'geometry': geo,
                     'thickness': bm.t,
                     'mu': bm.mu,
@@ -82,10 +33,8 @@ class TestVolumePotential:#(unittest.TestCase):
                     'cylindrical': True,
                     'pressure': p,
                     'output_file_path': 'test_output/vol_pot/'}
-        
-                
-                
-    
+
+
     def test_INH_roller(self):
         name = 'INH_roller'
         self.input_dict['output_file_path'] += name
@@ -143,7 +92,7 @@ class TestVolumePotential:#(unittest.TestCase):
         u_old = Function(mem.V)
         u_old.assign(u)
 
-        if self.input_dict['Boundary Conditions'] == 'Roller':
+        if True: #self.input_dict['Boundary Conditions'] == 'Roller':
             back_bd = CompiledSubDomain("(near(x[1], 1) && on_boundary)")
             mesh_func = MeshFunction("size_t", mem.mesh, mem.mesh.topology().dim()-1)
             back_bd.mark(mesh_func, 1)
@@ -167,7 +116,6 @@ class TestVolumePotential:#(unittest.TestCase):
         else:
             dV=0
         
-        
         for i in range(0,9):
             PI = mem.Pi
                 
@@ -187,9 +135,8 @@ class TestVolumePotential:#(unittest.TestCase):
             
             for key in dV_dict.keys():
                 PI += -p*dV_dict[key]
-              
         
-            if self.input_dict['Boundary Conditions'] == 'Roller':
+            if True: #self.input_dict['Boundary Conditions'] == 'Roller':
                 gsub1_2 = (mem.Gsub1[2] + u[2].dx(0))
                 gsub1_0 = (mem.Gsub1[0] + u[0].dx(0))
                 ###
@@ -231,6 +178,7 @@ class TestVolumePotential:#(unittest.TestCase):
         self.dV_dict_results={}
         for key in dV_dict.keys():
             self.dV_dict_results[key] = assemble(dV_dict[key])
+        self.plot(PI_INT, VOL, NORM_u, NORM_g1, NORM_g2, NORM_g3)
             
     def runNRM_expanded(self):
         '''
@@ -266,7 +214,7 @@ class TestVolumePotential:#(unittest.TestCase):
         u_old = Function(mem.V)
         u_old.assign(u)
 
-        if self.input_dict['Boundary Conditions'] == 'Roller':
+        if True: #self.input_dict['Boundary Conditions'] == 'Roller':
             back_bd = CompiledSubDomain("(near(x[1], 1) && on_boundary)")
             mesh_func = MeshFunction("size_t", mem.mesh, mem.mesh.topology().dim()-1)
             back_bd.mark(mesh_func, 1)
@@ -303,18 +251,14 @@ class TestVolumePotential:#(unittest.TestCase):
                            'u_g3': expand_ufl(dot(u, gsub3)),
                            'gamma_x_u1': expand_ufl(dot(mem.gamma, cross(mem.Gsub1+u.dx(0),gsub2))),
                            'gamma_x_u2': expand_ufl(dot(mem.gamma, cross(gsub1,mem.Gsub2+u.dx(1))))
-                           }
-            
+                           }            
             self.dV_expanded = dV_expanded
     
-
-            
-
             for key in dV_expanded.keys():
                 for d in dV_expanded[key]:
                     PI += -Constant(p/3)*d*dx(mem.mesh)
 
-            if self.input_dict['Boundary Conditions'] == 'Roller':
+            if True: #self.input_dict['Boundary Conditions'] == 'Roller':
                 gsub1_2 = (mem.Gsub1[2] + u[2].dx(0))
                 gsub1_0 = (mem.Gsub1[0] + u[0].dx(0))
                 X = mem.gamma[0]
@@ -357,6 +301,32 @@ class TestVolumePotential:#(unittest.TestCase):
         for key in dV_expanded.keys():
             form = sum(dV_expanded[key])
             self.dV_expanded_results[key] = assemble(Constant(1/3)*form*dx(mem.mesh))
+        self.plot(PI_INT, VOL, NORM_u, NORM_g1, NORM_g2, NORM_g3)
+            
+            
+    def plot(self, PI_INT, VOL, NORM_u, NORM_g1, NORM_g2, NORM_g3):
+        mat = self.input_dict['material']
+        fig, ax = plt.subplots(1,2,)
+        fig.suptitle(self.input_dict['Boundary Conditions'] +': ' + mat)
+        ax[0].plot(PI_INT[1:], '-*', label = 'Pi_int')
+        ax[0].legend()
+        ax[0].axhline(y=PI_INT[0])
+        ax[1].plot(VOL[1:], '-*',label = 'volume')
+        ax[1].legend()
+        ax[1].axhline(y=VOL[0])
+        
+        fig, ax = plt.subplots(1,2)
+        fig.suptitle(self.input_dict['Boundary Conditions'] + ': ' +mat)
+        ax[0].plot(NORM_u[1:], '-*', label = '|u|')
+        ax[0].legend()
+        ax[0].axhline(y=NORM_u[0])
+        ax[1].plot(NORM_g1[1:], '-*',label = '|g1|')
+        ax[1].plot(NORM_g2[1:], '-*',label = '|g2|')
+        ax[1].plot(NORM_g3[1:], '-*',label = '|g3|')
+        ax[1].legend()
+        ax[1].axhline(y=NORM_g1[0])
+        ax[1].axhline(y=NORM_g2[0])
+        ax[1].axhline(y=NORM_g3[0])
             
 if __name__=="__main__":
     # suite = unittest.TestSuite() # make an empty TestSuite
@@ -365,5 +335,5 @@ if __name__=="__main__":
     # runner.run(suite)
     
     test = TestVolumePotential()
-    # test.test_INH_roller()
+    test.test_INH_roller()
     test.test_INH_capped()
