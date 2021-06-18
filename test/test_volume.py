@@ -11,10 +11,10 @@ from dolfin import *
 from fenicsmembranes.parametric_membrane import *
 import matplotlib.pyplot as plt
 import numpy as np
-from bm_data import *
+from fenics_wrinkle.bm_data import *
 from test_trilinear_tools import*
 
-from geometry import Cylinder
+from fenics_wrinkle.geometry import Cylinder
 
 bm = KannoIsotropic()
 p = 7
