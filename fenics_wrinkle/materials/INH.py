@@ -10,7 +10,7 @@ from dolfin import (as_tensor, Identity, grad, assemble, dx, Constant,
                     tr, det, inv)
 from fenics_optim import ConvexFunction
 from fenics_optim.quadratic_cones import Pow, RQuad, SDP
-from fenics_wrinkle.utils import block_to_vect, eigenvalue
+from fenics_wrinkle.utils import block_to_vect
 import ufl
 from ufl import zero as O
 
@@ -93,5 +93,5 @@ class INHMembrane(ConvexFunction):
         F_n = mem.F_n
         S = self.get_2PK_stress()
         F_nsup = as_tensor([mem.gsup1, mem.gsup2]).T
-        t1, t2 = eigenvalue(F_nsup.T*F_n*S*F_n.T*F_n)
-        return t1, t2
+        sigma = F_nsup.T*F_n*S*F_n.T*F_n
+        return sigma

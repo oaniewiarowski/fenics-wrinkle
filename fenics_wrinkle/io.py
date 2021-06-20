@@ -26,13 +26,13 @@ class WrinklePlotter:
         # setup scalar outputs
         E_el1, E_el2 = eigenvalue(E_el)
         E_w1, E_w2 = eigenvalue(E_w)
-        # sigma_1, sigma_2 = eigenvalue(energy.cauchy)
+        sigma_1, sigma_2 = eigenvalue(energy.get_cauchy_stress())
         self.scalar_fields = {'E_el1': E_el1,
                               'E_el2': E_el2,
                               'E_w1': E_w1,
                               'E_w2': E_w2,
-                              # 'sigma_1': sigma_1,
-                              # 'sigma_2': sigma_2
+                               'sigma_1': sigma_1,
+                               'sigma_2': sigma_2
                               }
 
         self.data = {}
@@ -45,13 +45,13 @@ class WrinklePlotter:
         # setup vector outputs
         E_el_v1, E_el_v2 = eig_vecmat(E_el)
         E_w_v1, E_w_v2 = eig_vecmat(E_w)
-        # sigma_v1, sigma_v2 = eigenvalue(energy.cauchy)
+        sigma_v1, sigma_v2 = eig_vecmat(energy.get_cauchy_stress())
         self.vector_fields = {'E_el_v1': E_el_v1,
                               'E_el_v2': E_el_v2,
                               'E_w_v1': E_w_v1,
                               'E_w_v2': E_w_v2,
-                              # 'sigma_v1': sigma_v1,
-                              # 'sigma_v2': sigma_v2
+                               'sigma_v1': sigma_v1,
+                               'sigma_v2': sigma_v2
                               }
 
         for name, field in self.vector_fields.items():

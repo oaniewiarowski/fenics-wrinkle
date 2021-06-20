@@ -10,10 +10,10 @@ import dolfin as df
 from dolfin import dot, cross, sqrt, det, project, dx, Constant, FunctionSpace
 import numpy as np
 from fenicsmembranes.parametric_membrane import ParametricMembrane
-from fenics_wrinkle.utils import expand_ufl
+from fenics_wrinkle.utils import expand_ufl, eigenvalue
 import fenics_wrinkle.geometry.sphere as sphere
 from fenics_wrinkle.materials.INH import INHMembrane
-# from test_trilinear_tools import *
+from fenics_wrinkle.io import WrinklePlotter
 
 INTERVALS = 2
 
@@ -82,7 +82,7 @@ def inflation_test(membrane):
         stress = Constant(mu*T)*(Constant(1)-mem.lambda1**-6)/t
         Vs = FunctionSpace(mem.mesh, 'CG', 1)
         semi_analytical_stress[i] = project(stress, mem.Vs).compute_vertex_values(mem.mesh)
-        s1, s2 = energy.get_cauchy_stress()
+        s1, s2 = eigenvalue(energy.get_cauchy_stress())
         computed_stress_s1[i] = project(s1, Vs,
                                         form_compiler_parameters=fcp).compute_vertex_values(mem.mesh)
         computed_stress_s2[i] = project(s2, Vs,
@@ -163,7 +163,7 @@ def linear_volume_potential(mem, p):
     return dV_LIN
 
 
-def mosek_inflate(self, p, i):
+def mosek_inflate(self, p, i=0):
     u = self.u
     for j in range(2):
         with df.Timer(f"Mosek Inflate Interval {i}, Iteration {j}"):
@@ -178,8 +178,11 @@ def mosek_inflate(self, p, i):
             print(type(U_air_list[0]))
             for dU in U_air_list:
                 prob.add_obj_func(-Constant(p/3)*dU*dx(struc.mesh))
+            io = WrinklePlotter(struc, energy)
+            struc.io.add_plotter(io.plot, 'output/xdmf_write_interval', 0)
             prob.parameters["presolve"] = True
             prob.optimize()
+    struc.io.w
 
 
 mesh = df.RectangleMesh(sphere.p0, sphere.p1, 80, 20)
@@ -202,12 +205,12 @@ input_dict = {
         'pbc': pbc,
         'inflation_solver': 'Custom Newton'}
 
-
 PLOTTING = True
 input_dict['output_file_path'] = 'sphere_inflate'
 struc = ParametricMembrane(input_dict)
 
 with df.Timer("Inflation Test Total"):
     inflation_test(struc)
+
 df.list_timings(df.TimingClear.keep,
                 [df.TimingType.wall, df.TimingType.system])
