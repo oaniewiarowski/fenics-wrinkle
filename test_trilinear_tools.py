@@ -8,45 +8,6 @@ Created on Sun Jun 13 19:47:47 2021
 from dolfin import *
 import numpy as np
 import matplotlib.pyplot as plt
-import ufl
-
-
-
-from ufl.algorithms.expand_compounds import expand_compounds
-from ufl.algorithms.expand_indices import expand_indices
-
-
-def multiply_polynomials(a,b):
-    """
-    Return a polynomial that is the product of polynomials ``a`` and ``b``,
-    each represented as lists of monomials.
-    """
-    result = []
-    for aa in a:
-        for bb in b:
-            result += [aa*bb,]
-    return result
-
-def get_monomials(e):
-    """
-    Expand ``e`` into a list of monomials, assuming its outer-most operation
-    is a ``Sum`` or ``Product``.
-    """
-    # If the outer-most operation is a Sum, recurse and apply to
-    # operands, then add results:
-    if(isinstance(e,ufl.algebra.Sum)):
-        (a,b) = e.ufl_operands
-        return get_monomials(a) + get_monomials(b)
-    # If the outer-most operation is a Product, recurse and apply to
-    # operands, then multiply results using multiply_polynomials.
-    if(isinstance(e,ufl.algebra.Product)):
-        (a,b) = e.ufl_operands
-        return multiply_polynomials(get_monomials(a),get_monomials(b))
-    # If neither a Sum nor a Product, then it is considered a "monomial",
-    # and is returned as a 1-element list.
-    return [e,]
-
-
 
 
 def my_cross(x,c):
@@ -185,20 +146,7 @@ def test_inverse_grad():
     # plot(mag_uu, title='mag_uu')        
 
 
-def expand_ufl(obj):
-    obj_expanded = expand_compounds(obj)
-    if type(obj_expanded) is ufl.indexsum.IndexSum:
-        obj_expanded = expand_indices(obj_expanded)
-    result = []
-    try:
-        for i in range(0,len(obj_expanded)):
-            result_component = get_monomials(obj_expanded[i])
-            result += [result_component,]
-        return result
-    except:
-        result_component = get_monomials(obj_expanded)
-        result += [result_component,]
-        return result[0]
+
 
 def test_expanded_ufl():
     p=1.1

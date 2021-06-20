@@ -6,12 +6,16 @@ Created on Tue Apr 13 14:25:40 2021
 @author: alexanderniewiarowski
 """
 
-from dolfin import tr, det, DOLFIN_EPS_LARGE, conditional, sqrt, gt, as_vector, dot, as_matrix
+from dolfin import (tr, det, DOLFIN_EPS_LARGE, 
+                    conditional, sqrt, gt, as_vector, dot, as_matrix)
 from ufl import shape
+import ufl
+from ufl.algorithms.expand_compounds import expand_compounds
+from ufl.algorithms.expand_indices import expand_indices
 
 
 def eigenvalue(A):
-    ''' ufl eigenvalues of 2x2 tensor '''
+    """ufl eigenvalues of 2x2 tensor"""
     assert A.ufl_shape == (2, 2)
     I1 = tr(A)
     I2 = det(A)
@@ -55,9 +59,9 @@ def eig_vecmat(A):
 
 
 def to_vect(X):
-    """ Transforms symmetric tensor into vector by spanning upper diagonals """
+    """Transform symmetric tensor into vector by spanning upper diagonals"""
     s = shape(X)
-    if len(s)==2 and s[0] == s[1]:
+    if len(s) == 2 and s[0] == s[1]:
         d = s[0]
         return as_vector([X[i, i+k]
                           for k in range(d) for i in range(d-k)])
@@ -66,6 +70,7 @@ def to_vect(X):
 
 
 def as_block_matrix(mlist):
+    """Convert nested list of ufl objects into ufl block"""
     rows = []
     # Block rows:
     for i in range(0, len(mlist)):
@@ -85,6 +90,55 @@ def as_block_matrix(mlist):
 
 def block_to_vect(mlist):
     return to_vect(as_block_matrix(mlist))
+
+
+def multiply_polynomials(a,b):
+    """
+    Return a polynomial that is the product of polynomials ``a`` and ``b``,
+    each represented as lists of monomials.
+    """
+    result = []
+    for aa in a:
+        for bb in b:
+            result += [aa*bb, ]
+    return result
+
+
+def get_monomials(e):
+    """
+    Expand ``e`` into a list of monomials, assuming its outer-most operation
+    is a ``Sum`` or ``Product``.
+    """
+    # If the outer-most operation is a Sum, recurse and apply to
+    # operands, then add results:
+    if(isinstance(e, ufl.algebra.Sum)):
+        (a, b) = e.ufl_operands
+        return get_monomials(a) + get_monomials(b)
+    # If the outer-most operation is a Product, recurse and apply to
+    # operands, then multiply results using multiply_polynomials.
+    if(isinstance(e, ufl.algebra.Product)):
+        (a, b) = e.ufl_operands
+        return multiply_polynomials(get_monomials(a), get_monomials(b))
+    # If neither a Sum nor a Product, then it is considered a "monomial",
+    # and is returned as a 1-element list.
+    return [e, ]
+
+
+def expand_ufl(obj):
+    obj_expanded = expand_compounds(obj)
+    if type(obj_expanded) is ufl.indexsum.IndexSum:
+        obj_expanded = expand_indices(obj_expanded)
+    result = []
+    try:
+        for i in range(0, len(obj_expanded)):
+            result_component = get_monomials(obj_expanded[i])
+            result += [result_component, ]
+        return result
+    except:
+        result_component = get_monomials(obj_expanded)
+        result += [result_component, ]
+        return result[0]
+
 
 # def diagonalize(A):
 #     '''fenics_optim.to_vect spans lower diagonal'''
