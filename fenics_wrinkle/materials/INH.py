@@ -10,7 +10,7 @@ from dolfin import (as_tensor, Identity, grad, assemble, dx, Constant,
                     tr, det, inv)
 from fenics_optim import ConvexFunction
 from fenics_optim.quadratic_cones import Pow, RQuad, SDP
-from fenics_wrinkle.utils import block_to_vect
+from fenics_wrinkle.utils import block_to_vect, as_block_matrix
 import ufl
 from ufl import zero as O
 
@@ -22,20 +22,22 @@ class INHMembrane(ConvexFunction):
     psi = tr(C) + 1/det(C)
     """
 
-    def __init__(self, u, mem, **kwargs):
+    def __init__(self, u, mem, g1_bar=None, g2_bar=None, **kwargs):
         self.mem = mem
         ConvexFunction.__init__(self, u, parameters=None, **kwargs)
+        self.g1_bar = g1_bar
+        self.g2_bar = g2_bar
 
     def conic_repr(self, u):
-
+        
         F0 = self.mem.F_0
 
         # d>= 1/s^2
-        s = self.add_var(dim=3, cone=Pow(3, 1/3))
+        s = self.add_var(dim=3, cone=Pow(3, 1/3), name='s')
         d_ = s[0]
 
         # C11*C22 >= C12^2 + s^2
-        r = self.add_var(dim=4, cone=RQuad(4))
+        r = self.add_var(dim=4, cone=RQuad(4), name='r')
 
         C11 = 2*r[0]
         C22 = r[1]
@@ -49,30 +51,64 @@ class INHMembrane(ConvexFunction):
         self.add_eq_constraint([None, s[2], None], b=1)
         self.add_eq_constraint([None, -s[1], r[3]], b=0)
         # self.set_linear_term([None, d_, C11 + C22])
-
+        
         d = self.mem.nsd
         # dim = 10 or 15 = top dim + geo dim + 1
-        vect_Z = self.add_var(dim=sum(range(2+d+1)), cone=SDP(2+d))
+        vect_Z = self.add_var(dim=sum(range(2+d+1)), cone=SDP(2+d), name='Z')
 
         vect_I = block_to_vect([[O(2, 2), -F0.T],
                                 [-F0, Identity(d)]])
 
         vect_grad_u_T = block_to_vect([[O((2, 2)), grad(u).T],
-                                       [grad(u),  O(d, d)]])
+                                        [grad(u),  O(d, d)]])
 
         vect_Cnel = block_to_vect([[C_n_el,    O(2, d)],
-                                   [O(d, 2), O(d, d)]])
+                                    [O(d, 2), O(d, d)]])
 
         self.add_eq_constraint([vect_grad_u_T, None, -vect_Cnel, vect_Z],
-                               b=vect_I)
-        c = self.add_var(dim=1, cone=None, lx=3, ux=3)
+                                b=vect_I)
+        c = self.add_var(dim=1, cone=None, lx=3, ux=3, name='c')
 
         self.set_linear_term([None, d_, C11 + C22, None, -c[0]])
 
         self.E_el = 0.5*(self.C_n_el - self.mem.C_0)
         self.E_w = -(self.mem.E - self.E_el)
+        '''
+        d = self.mem.nsd
+        # dim = 10 or 15 = top dim + geo dim + 1
+        vect_Z = self.add_var(dim=sum(range(2+d+1)), cone=SDP(2+d), name='Z')
 
-    def _my_evaluate(self):
+
+        if self.g1_bar is not None:
+            F0 = as_tensor([self.g1_bar, self.mem.Gsub2]).T
+            vect_I = block_to_vect([[O(2, 2), -F0.T],
+                                    [-F0, Identity(d)]])
+            gradu = as_tensor([O(3,), u.dx(1)]).T
+        if self.g2_bar is not None:
+            F0 = as_tensor([self.mem.Gsub1, self.g2_bar]).T
+            vect_I = block_to_vect([[O(2, 2), -F0.T],
+                                    [-F0, Identity(d)]])
+            gradu = as_tensor([u.dx(0), O(3,)]).T
+        # else:
+        #     gradu = grad(u)
+        vect_grad_u_T = block_to_vect([[O((2, 2)), gradu.T],
+                                        [gradu,  O(d, d)]])
+
+
+        vect_Cnel = block_to_vect([[C_n_el,    O(2, d)],
+                                    [O(d, 2), O(d, d)]])
+
+        self.add_eq_constraint([vect_grad_u_T, None, -vect_Cnel, vect_Z],
+                                        b=vect_I)
+        c = self.add_var(dim=1, cone=None, lx=3, ux=3, name='c')
+
+        self.set_linear_term([None, d_, C11 + C22, None, -c[0]])
+
+        self.E_el = 0.5*(self.C_n_el - self.mem.C_0)
+        self.E_w = -(self.mem.E - self.E_el)
+        '''
+
+    def evaluate(self):
         mem = self.mem
         I_C = tr(self.C_bar_el) + 1/det(self.C_bar_el)
         energy = 0.5*mem.material.mu*(I_C - Constant(mem.nsd))
