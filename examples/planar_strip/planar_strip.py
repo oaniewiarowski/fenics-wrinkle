@@ -5,24 +5,20 @@ Created on Mon May 10 22:06:55 2021
 
 @author: alexanderniewiarowski
 """
-
-from fenics_optim import *
-
-from fenicsmembranes.parametric_membrane import *
+import dolfin as df
+from dolfin import Constant, near, project, det, sqrt, dx
+import fenics_optim as fo
+from fenicsmembranes.parametric_membrane import ParametricMembrane
 import matplotlib.pyplot as plt
 import numpy as np
-from fenics_wrinkle.bm_data import *
-
-from fenics_optim import ConvexFunction
+from fenics_wrinkle.bm_data import KannoIsotropic
+from fenics_wrinkle.materials.INH import INHMembrane
 
 from fenics_wrinkle.io import WrinklePlotter
 bm = KannoIsotropic()
-# parameters["form_compiler"]["representation"] = 'uflacs'
-np.testing.assert_array_almost_equal_nulp(C(bm.lamb_bar, bm.mu), C_plane_stress(bm.E, bm.nu))
-C = C_plane_stress(bm.lamb, bm.nu)
 
 N = 20
-mesh = RectangleMesh(Point(0,0), Point(bm.width, bm.height), 2*N, N, )
+mesh = df.RectangleMesh(df.Point(0, 0), df.Point(bm.width, bm.height), 2*N, N)
 
 def bottom(x, on_boundary):
     return near(x[1], 0) and on_boundary
@@ -35,30 +31,27 @@ def right(x, on_boundary):
 def bnd(x, on_boundary):
     return on_boundary
 
-
 ux = 2
-uy = -2.
-u_y = Expression(('x[1]*(-10/100)'), degree=1)
+u_y = df.Expression(('x[1]*(-10/100)'), degree=1)
 
 
 class Geometry:
     def __init__(self):
-        self.gamma = project(Expression(('x[0]', 'x[1]', 0), degree=1), VectorFunctionSpace(mesh, 'CG', 2, dim=3))
-        self.Gsub1 = project(Constant((1, 0, 0)), VectorFunctionSpace(mesh, 'CG', 2, dim=3))
-        self.Gsub2 = project(Constant((0, 1, 0)), VectorFunctionSpace(mesh, 'CG', 2, dim=3))
-
+        self.gamma = project(df.Expression(('x[0]', 'x[1]', 0), degree=1), df.VectorFunctionSpace(mesh, 'CG', 1, dim=3))
+        self.Gsub1 = project(Constant((1, 0, 0)), df.VectorFunctionSpace(mesh, 'CG', 1, dim=3))
+        self.Gsub2 = project(Constant((0, 1, 0)), df.VectorFunctionSpace(mesh, 'CG', 1, dim=3))
 
 
 UX = Constant(0)
 UY = Constant(0)
+
 def bc(mem):
-    bc = [DirichletBC(mem.V.sub(0), Constant(0), left),
-          DirichletBC(mem.V.sub(0), UX, right),
-          DirichletBC(mem.V.sub(1), Constant(0), bottom), 
-          DirichletBC(mem.V.sub(1), UY, top),
-          DirichletBC(mem.V.sub(2),  Constant(0), bnd) ]
-    
-    
+    bc = [df.DirichletBC(mem.V.sub(0), Constant(0), left),
+          df.DirichletBC(mem.V.sub(0), UX, right),
+          df.DirichletBC(mem.V.sub(1), Constant(0), bottom),
+          df.DirichletBC(mem.V.sub(1), UY, top),
+          df.DirichletBC(mem.V.sub(2),  Constant(0), bnd)]
+
     # c = -5
     # bc = [DirichletBC(mem.V.sub(1), Constant(c), bottom),
     #       DirichletBC(mem.V.sub(0), Constant(c), left),
@@ -66,126 +59,165 @@ def bc(mem):
     #       DirichletBC(mem.V.sub(1), Constant(-c), top) ]
     return bc
 
-input_dict = {
-        'mesh': mesh,
-        'resolution': [30,30],
-        'geometry': Geometry(),
-        'thickness': bm.t,
-        'material': 'Incompressible NeoHookean',
-        'mu': bm.mu,
-        'cylindrical': True,
-        'output_file_path': 'benchmark_idea_cross_section',
-        'pressure': 0,
-        'Boundary Conditions': bc}
 
-middle = CompiledSubDomain("near(x[0], 100)")
 
-markers = MeshFunction('size_t', mesh, mesh.geometric_dimension()-1)
+def bc_uniaxial(mem):
+    bc = [df.DirichletBC(mem.V, Constant((0,0,0)), left),
+          df.DirichletBC(mem.V, Constant((UX,0,0)), right),
+
+
+          df.DirichletBC(mem.V.sub(2),  Constant(0), bnd)]
+
+    # c = -5
+    # bc = [DirichletBC(mem.V.sub(1), Constant(c), bottom),
+    #       DirichletBC(mem.V.sub(0), Constant(c), left),
+    #       DirichletBC(mem.V.sub(0), Constant(-c), right),
+    #       DirichletBC(mem.V.sub(1), Constant(-c), top) ]
+    return bc
+
+
+input_dict = {'mesh': mesh,
+              'geometry': Geometry(),
+              'thickness': bm.t,
+              'material': 'Incompressible NeoHookean',
+              'mu': bm.mu,
+              'cylindrical': True,
+              'output_file_path': 'results/planar_strip',
+              'pressure': 0,
+              'Boundary Conditions': bc}
+
+middle = df.CompiledSubDomain("near(x[0], 100)")
+markers = df.MeshFunction('size_t', mesh, mesh.geometric_dimension()-1)
 markers.set_all(0)
 
 middle.mark(markers, 1)
-File('sub.pvd') <<markers
-dS = Measure('dS', domain = mesh, subdomain_data = markers)
+df.File('sub.pvd') << markers
+dS = df.Measure('dS', domain=mesh, subdomain_data=markers)
 
-mem = membrane = ParametricMembrane((input_dict))
-mem.io.write_fields()
-#
-t_j =[]
-simplified = []
+mem = membrane = ParametricMembrane(input_dict)
+
+t_j = []
 t_J = []
-
-uys = np.concatenate((np.zeros(1), np.linspace(0,10, 11)))
-
-tranverse = False
+t_el = []
+uys = np.concatenate((np.zeros(2), np.linspace(0, 1, 11), np.array([1.5,2])))
+# uys = np.concatenate((np.zeros(1), np.linspace(0, 1, 5)))
 for i, uy in enumerate(uys):
+    if i == 0:
+        print("slack")
     if i == 1:
-        UX.assign(1)
+        # mem.bc = bc_uniaxial(mem)
+        UX.assign(3)
+    # if i == 2:
+    #     # release top
+    #     mem.bc = bc(mem)
+    # if i > 2: 
+    #     mem.bc = bc(mem)
+        
+                  
+        
     print('UX, UY:', float(UX), float(UY))
     UY.assign(-uy)
-    prob = MosekProblem("No-compression membrane model")
+    prob = fo.MosekProblem("No-compression membrane model")
     u__ = prob.add_var(mem.V, bc=mem.bc)
     prob.var[0] = mem.u   # replace
     u = mem.u
-    from fenics_wrinkle.materials.INH import INHMembrane
-    energy = INHMembrane(u, mem, degree=2)
-    # energy = NonLinearMembrane(u, mem, degree=2)
+
+    energy = INHMembrane(u, mem, degree=5)
+    
     prob.add_convex_term(bm.t*bm.mu/2*energy)
     prob.parameters["presolve"] = True
-    prob.optimize()        
-    
-    
-    
-    # from utils import eigenvalue, eig_vecmat
-    # # E = membrane.E
-    # # E_el = as_tensor([[energy.Eel[0],energy.Eel[2]],
-    # #                   [energy.Eel[2],energy.Eel[1]]])
-    
-    # # # Veps = VectorFunctionSpace(mesh, "DG", 0, dim=3)
-    # # # E_el = project(energy.Eel, Veps, form_compiler_parameters={"quadrature_degree": energy.degree})
-    # # # E_w = project(E - Eel, Veps)
-    # # E_w = E - E_el
-    
-    # E = membrane.E
-    # E_el = 0.5*(energy.C_elastic - membrane.C_0)
-    # E_w = -(E - E_el)
-    
-    # def write_eigval(A, l1_name, l2_name):
-    #     l1, l2 = eigenvalue(A)
-        
-    #     l1 = project(l1, FunctionSpace(mem.mesh, 'CG',1), form_compiler_parameters={"quadrature_degree": energy.degree})
-    #     l1.rename(l1_name, l1_name)
-        
-    #     l2 = project(l2, FunctionSpace(mem.mesh, 'CG',1), form_compiler_parameters={"quadrature_degree": energy.degree})
-    #     l2.rename(l2_name, l2_name)
-        
-    #     mem.io.add_extra_output_function(l1)
-    #     mem.io.add_extra_output_function(l2)
-    #     # mem.io.write_fields()
-        
-    
-    
-    # def write_eigvec(A, v1_name, v2_name):
-    #     v1, v2 = eig_vecmat(A)
-    #     S = VectorFunctionSpace(mem.mesh, 'CG', 1)
-    #     eig1 = project(v1, S, form_compiler_parameters={"quadrature_degree": energy.degree})
-    #     eig1.rename(v1_name, v1_name)
-    #     eig2 = project(v2, S, form_compiler_parameters={"quadrature_degree": energy.degree})
-    #     eig2.rename(v2_name, v2_name)
-    #     mem.io.add_extra_output_function(eig1)
-    #     mem.io.add_extra_output_function(eig2)
-    #     # mem.io.write_fields()
-    
-    
-  #%%  
-    # write_eigval(E_w, 'Ew1', 'Ew2')
-    # write_eigvec(E_w, 'Ew_v1', 'Ew_v2')
-    
-    # write_eigval(E_el, 'E_el1', 'E_el2')
-    # write_eigvec(E_el, 'E_el_eig1', 'E_el_eig2')
+    prob.optimize()
 
     io = WrinklePlotter(mem, energy)
     mem.io.add_plotter(io.plot, 'output/xdmf_write_interval', 0)
     mem.io.write_fields()
-    #%
-    mf = MeshFunction('size_t', mesh, 2, mesh.domains())
-    t_ji = bm.t*sqrt((det(mem.C_0)('-')/det(mem.C_n)('-')))*mem.j_a('-')*dS(1) + Constant(0)*dx(domain=mesh, subdomain_data=mf)
-    simplified_i = bm.t*det(mem.C_n)('-')*dS(1) + Constant(0)*dx(domain=mesh, subdomain_data=mf)
-    t_Ji = bm.t*sqrt((det(mem.C_0)('-')/det(mem.C_n)('-')))*dS(1) + Constant(0)*dx(domain=mesh, subdomain_data=mf)
-    # t_i = bm.t*mem.lambda3('-')*dS(1)
-    t_j.append(assemble(t_ji))
-    simplified.append(assemble(simplified_i))
-    t_J.append(assemble(t_Ji))
-    # L3 = dot(grad(f)('+'), n('+'))*dS 
 
-    # print(t, t/(bm.height))
+    mf = df.MeshFunction('size_t', mesh, 2, mesh.domains())
+    zero = Constant(0)*dx(domain=mesh, subdomain_data=mf)
+
+    dS_el = df.Measure('dS', domain=mesh, subdomain_data=markers, metadata=io.fcp)
+    t_elastic = df.project(bm.t*sqrt((det(mem.C_0)/det(energy.C_n_el))),io.Vs, form_compiler_parameters=io.fcp)
+    t_el.append(df.assemble(t_elastic*dS_el(1), form_compiler_parameters=io.fcp))
+
+    t_ji = bm.t*sqrt((det(mem.C_0)('-')/det(mem.C_n)('-')))*mem.j_a('-')*dS(1) + zero
+    t_j.append(df.assemble(t_ji))
     
-#%%   
-fig, ax = plt.subplots()
-ax.plot(uys, t_j, '-', label='cross sectional area in initial config:' + r'$\int h J_a dS = \int H dS$')
-# ax.plot(us, simplified, '.', label='simplifed')
-ax.plot(uys, t_J, '--', label='cross sectional area in deformed config \n w/o correcting for change in height:'+ r'$\int h dS $')
-alpha = (bm.height-uys)/bm.height
-ax.plot(uys, t_J*alpha, '--', label='corrected cross sectional area:'+ r'$ \alpha \int h dS,  \alpha=(height-\Delta u_y)/height$')
-ax.set_xlabel('tranverse displacement')
-ax.set_ylabel('cross section area')
-plt.legend()
+    # t J 
+    t_Ji = bm.t*sqrt((det(mem.C_0)('-')/det(mem.C_n)('-')))*dS(1) + zero
+    t_J.append(df.assemble(t_Ji))
+    
+
+
+#%%
+
+
+from matplotlib import rc_file
+import os
+rc_file('../submission/journal_rc_file.rc')
+#plt.style.use('seaborn-whitegrid')
+
+out_path = '../submission/figures/'
+if not os.path.exists(out_path):
+    os.makedirs(out_path)
+
+
+# For convenience 
+labels = {
+        'KS': r'$J = KS\left( (\lambda_1 - \bar{\lambda})^2\right)$',
+        'abs': r'$J = \int ( \lambda_1 - \bar{\lambda} )^2 d\xi$',
+        'lsq': r'$\hat{J} = \int ( \lambda_1 - \bar{\lambda} )^2 d\xi$'
+        }
+#%%
+if __name__ == "__main__":
+    
+    # csv file saved in Paraview. File > Save Data
+    fname = 'results/planar_strip'
+    
+    fig, ax = plt.subplots(figsize=[6.5,3])
+    
+    ax.plot(uys, t_j, '-',
+            label='Initial cross section') # + r'$\int h J_a dS = \int H dS$')
+
+    ax.plot(uys, t_J, 'x-.', ms=10,
+            label='Reference cross section') # + r'$\int H\sqrt{\frac{C_0}{C_n}} dS $')
+    # j =0
+    # for x, y in zip(uys, t_J):
+    #     ax.text(x+j/100, y, str(j), color="orange", fontsize=12)
+    #     j+=1
+    ax.plot(uys, t_el, '.--', ms=10,
+            label='Elastic cross section')# + r'$\int H\sqrt{\frac{C_0}{C_n^e}} dS$')
+    # j =0
+    # for x, y in zip(uys, t_el):
+    #     ax.text(x+j/50, y, str(j), color="green", fontsize=12)
+    #     j+=1
+
+    ax.text(uys[0]-.05, t_el[0], 'A', horizontalalignment='center', verticalalignment='top')
+    ax.text(uys[1]-.05, t_el[1], 'B', horizontalalignment='center', verticalalignment='top')
+    # ax.text(uys[2]-.05, t_el[2], 'C', horizontalalignment='center', verticalalignment='top')
+    # ax.text(uys[3]-.05, t_el[3], 'D', horizontalalignment='center', verticalalignment='top')
+    
+    
+    # ax.text(uys[0]+.05, t_J[0], 'A', horizontalalignment='center', verticalalignment='top')
+    # ax.text(uys[1]+.05, t_J[1], 'B', horizontalalignment='center', verticalalignment='top')
+    # ax.text(uys[2]+.05, t_J[2], 'C', horizontalalignment='center', verticalalignment='top')
+    # ax.text(uys[3]+.05, t_J[3], 'D', horizontalalignment='center', verticalalignment='top')
+    ax.set_xlabel('Tranverse displacement '+r'$\Delta u_y$')
+    ax.set_ylabel('Cross sectional area '+ r'$ (mm^2)$')
+    ax.legend()
+    
+    ax.grid(True)
+
+    plt.tight_layout()
+    plt.savefig(out_path+f'planar_strip_thickness.pdf', dpi=600)
+
+# alpha = (bm.height - uys)/bm.height
+# ax.plot(uys, t_J*alpha, 'o-',
+#         label='corrected cross sectional area:' + r'$ \alpha \int h dS, \alpha=(height-\Delta u_y)/height$')
+
+    import json
+    results = {"intial": t_j,
+               "ref": t_J,
+               "elastic": t_el
+               }
+    with open("results/thicknesses.json", "w") as outfile:
+        json.dump(results, outfile)
