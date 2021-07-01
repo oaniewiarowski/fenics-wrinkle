@@ -17,7 +17,7 @@ from fenics_wrinkle.materials.INH import INHMembrane
 from fenics_wrinkle.io import WrinklePlotter
 bm = KannoIsotropic()
 
-N = 20
+N = 15
 mesh = df.RectangleMesh(df.Point(0, 0), df.Point(bm.width, bm.height), 2*N, N)
 
 def bottom(x, on_boundary):
@@ -99,8 +99,14 @@ mem = membrane = ParametricMembrane(input_dict)
 t_j = []
 t_J = []
 t_el = []
+DS = []
+Ja = []
+Ja_el = []
+LENGTH = []
+ELASTIC_LENGTH = []
+
 uys = np.concatenate((np.zeros(2), np.linspace(0, 1, 11), np.array([1.5,2])))
-# uys = np.concatenate((np.zeros(1), np.linspace(0, 1, 5)))
+uys = np.concatenate((np.zeros(1), np.linspace(0, .85, 4), np.array([1,2,3])))
 for i, uy in enumerate(uys):
     if i == 0:
         print("slack")
@@ -110,11 +116,11 @@ for i, uy in enumerate(uys):
     # if i == 2:
     #     # release top
     #     mem.bc = bc(mem)
-    # if i > 2: 
+    # if i > 2:
     #     mem.bc = bc(mem)
-        
-                  
-        
+
+
+
     print('UX, UY:', float(UX), float(UY))
     UY.assign(-uy)
     prob = fo.MosekProblem("No-compression membrane model")
@@ -123,7 +129,7 @@ for i, uy in enumerate(uys):
     u = mem.u
 
     energy = INHMembrane(u, mem, degree=5)
-    
+
     prob.add_convex_term(bm.t*bm.mu/2*energy)
     prob.parameters["presolve"] = True
     prob.optimize()
@@ -141,13 +147,19 @@ for i, uy in enumerate(uys):
 
     t_ji = bm.t*sqrt((det(mem.C_0)('-')/det(mem.C_n)('-')))*mem.j_a('-')*dS(1) + zero
     t_j.append(df.assemble(t_ji))
-    
-    # t J 
+
+    # t J
     t_Ji = bm.t*sqrt((det(mem.C_0)('-')/det(mem.C_n)('-')))*dS(1) + zero
     t_J.append(df.assemble(t_Ji))
+
+    DS.append(df.assemble(Constant(1)*dS(1)))
+    Ja.append(df.assemble(mem.j_a('-')*dS(1)))
+    ja_el = df.project(sqrt(det(energy.C_n_el)), io.Vs, form_compiler_parameters=io.fcp)
+    Ja_el.append(df.assemble(ja_el('-')*dS(1), form_compiler_parameters=io.fcp))
     
-
-
+    LENGTH.append(df.assemble(df.dot(df.dot(mem.F, mem.Gsub2),mem.Gsub2)('-')*dS(1)))
+    elastic_length = df.project(sqrt(df.dot(df.dot(energy.C_n_el, df.as_vector([0,1])),df.as_vector([0,1]))), io.Vs, form_compiler_parameters=io.fcp)
+    ELASTIC_LENGTH.append(df.assemble(elastic_length('-')*dS(1), form_compiler_parameters=io.fcp))
 #%%
 
 
@@ -161,7 +173,7 @@ if not os.path.exists(out_path):
     os.makedirs(out_path)
 
 
-# For convenience 
+# For convenience
 labels = {
         'KS': r'$J = KS\left( (\lambda_1 - \bar{\lambda})^2\right)$',
         'abs': r'$J = \int ( \lambda_1 - \bar{\lambda} )^2 d\xi$',
@@ -169,22 +181,22 @@ labels = {
         }
 #%%
 if __name__ == "__main__":
-    
+
     # csv file saved in Paraview. File > Save Data
     fname = 'results/planar_strip'
-    
+
     fig, ax = plt.subplots(figsize=[6.5,3])
-    
+    alpha = (100-uys)/100
     ax.plot(uys, t_j, '-',
             label='Initial cross section') # + r'$\int h J_a dS = \int H dS$')
 
-    ax.plot(uys, t_J, 'x-.', ms=10,
+    ax.plot(uys, np.array(LENGTH)*t_J/100, 'x-.', ms=10,
             label='Reference cross section') # + r'$\int H\sqrt{\frac{C_0}{C_n}} dS $')
     # j =0
     # for x, y in zip(uys, t_J):
     #     ax.text(x+j/100, y, str(j), color="orange", fontsize=12)
     #     j+=1
-    ax.plot(uys, t_el, '.--', ms=10,
+    ax.plot(uys, np.array(ELASTIC_LENGTH)*t_el/100, '.--', ms=10,
             label='Elastic cross section')# + r'$\int H\sqrt{\frac{C_0}{C_n^e}} dS$')
     # j =0
     # for x, y in zip(uys, t_el):
@@ -195,8 +207,8 @@ if __name__ == "__main__":
     ax.text(uys[1]-.05, t_el[1], 'B', horizontalalignment='center', verticalalignment='top')
     # ax.text(uys[2]-.05, t_el[2], 'C', horizontalalignment='center', verticalalignment='top')
     # ax.text(uys[3]-.05, t_el[3], 'D', horizontalalignment='center', verticalalignment='top')
-    
-    
+
+
     # ax.text(uys[0]+.05, t_J[0], 'A', horizontalalignment='center', verticalalignment='top')
     # ax.text(uys[1]+.05, t_J[1], 'B', horizontalalignment='center', verticalalignment='top')
     # ax.text(uys[2]+.05, t_J[2], 'C', horizontalalignment='center', verticalalignment='top')
@@ -204,11 +216,11 @@ if __name__ == "__main__":
     ax.set_xlabel('Tranverse displacement '+r'$\Delta u_y$')
     ax.set_ylabel('Cross sectional area '+ r'$ (mm^2)$')
     ax.legend()
-    
+
     ax.grid(True)
 
     plt.tight_layout()
-    plt.savefig(out_path+f'planar_strip_thickness.pdf', dpi=600)
+    plt.savefig(out_path+f'planar_strip_thickness_corrected.pdf', dpi=600)
 
 # alpha = (bm.height - uys)/bm.height
 # ax.plot(uys, t_J*alpha, 'o-',
@@ -219,5 +231,5 @@ if __name__ == "__main__":
                "ref": t_J,
                "elastic": t_el
                }
-    with open("results/thicknesses.json", "w") as outfile:
+    with open("results/thicknesses_corrected.json", "w") as outfile:
         json.dump(results, outfile)
