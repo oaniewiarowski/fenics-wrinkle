@@ -4,6 +4,12 @@
 Created on Sun Jul  4 14:23:14 2021
 
 @author: alexanderniewiarowski
+
+Original solution:
+https://www.jstor.org/stable/77716
+
+Implementation follows Appendix C of De Rooij thesis:
+https://repository.tudelft.nl/islandora/object/uuid:407b1564-04d7-4f24-badf-61bb960ec9d2
 """
 
 import sympy as sp
@@ -108,23 +114,29 @@ def strain_x0(x0, y):
     x, y = x0_to_x(x0, y, alpha=alpha)
     return x, y, float(num/den)
 
-x0 = np.linspace(0, 105, 50)
+x0 = np.linspace(0, 100, 50)
 y = np.linspace(-50, 50, 50)
 X0, Y = np.meshgrid(x0, y)
 XS, YS, ES = strain_x0(X0, Y)
-
+#%%
 fig, ax = plt.subplots()
-n = 20
+n = 256
 e_max = 0.06
 levels = np.linspace(0, e_max, n+1)
-cs = ax.contourf(XS,YS, ES, levels=levels, extend='max')
+cs = ax.contourf(XS,YS, ES, cmap='coolwarm', levels=levels, extend='max')
 cs.cmap.set_over('pink')
 cs.set_clim(0, e_max)
 plt.colorbar(cs)
-
+cs = ax.contourf(-XS,-YS, ES, cmap='coolwarm', levels=levels, extend='max')
 ax.axvline(0)
 ax.axhline(0)
-ax.plot(XS,YS, 'k',lw=.2)
+ax.plot(XS,YS, 'k',lw=0.2)
+ax.plot(-XS, -YS, 'k', lw=0.2)
+ax.hlines(-50,-100, 100, 'k')
+ax.hlines(50,-100, 100, 'k')
+ax.vlines(-100,-50, 50, 'k')
+ax.vlines(100,-50, 50, 'k')
+plt.axis('equal')
 #%%
 def calculate_phi():
     '''total strain energy'''
