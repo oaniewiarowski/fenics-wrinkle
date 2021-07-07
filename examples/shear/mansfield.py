@@ -120,7 +120,7 @@ def strain_x0(x0, y):
     x, y = x0_to_x(x0, y, alpha=alpha)
     return x, y, float(num/den)
 
-
+#%%
 
 def calculate_phi():
     '''total strain energy'''
@@ -130,9 +130,10 @@ def calculate_phi():
         mu = float(alpha_to_mu(alpha))
         return sp.sin(2*alpha_star - alpha)/(-sp.log(mu))
     
-    return E * t * u_hat**2  * integrate.romberg(integrand_, a0_tol, alpha_L)
+    return E * t * u_hat**2 * integrate.romberg(integrand_, a0_tol, alpha_L)
 
-
+phi = calculate_phi()
+phi = phi.evalf()
 #%%
 
 if __name__=="__main__":
@@ -150,10 +151,10 @@ if __name__=="__main__":
     
     # assert float(alpha_star) < float(alpha_0)
     # alpha_0 guesses for u = 5
-    guess_low = 0.886
-    guess_high  = 0.925
+    guess_low = 0.9011748657226564 # 0.886
+    guess_high  =  0.9011760559082032 # 0.925
     x_guessed = []
-    N = 15
+    N = 10
     # alpha_0 = bisection(f, guess_low, guess_high, N)
     '''
     1
@@ -209,9 +210,46 @@ if __name__=="__main__":
     15
     guess: 0.9011760559082032
     -0.0005615248033734588
+    
+    *******
+    1
+    guess: 0.9011754608154298
+    0.00020060762486195927
+    *
+    2
+    guess: 0.9011757583618165
+    -0.00018046157619266978
+    3
+    guess: 0.9011756095886232
+    1.0072277561334886e-05
+    *
+    4
+    guess: 0.9011756839752199
+    -8.519484227065277e-05
+    5
+    guess: 0.9011756467819215
+    -3.7561333925850704e-05
+    6
+    guess: 0.9011756281852723
+    -1.3744538591708988e-05
+    7
+    guess: 0.9011756188869477
+    -1.836127594856407e-06
+    8
+    guess: 0.9011756142377855
+    4.118065376701452e-06
+    *
+    9
+    guess: 0.9011756165623666
+    1.1409678535301282e-06
+    *
+    10
+    guess: 0.9011756177246572
+    -3.4758727451844607e-07
     '''
-    alpha_0 = 0.9011754608154298
+    # alpha_0 = 0.9011754608154298
     # 0.9011754608154298 for u =5, N=15 itr
+    alpha_0 =  0.9011756171435119 #for u 5 N=25
     a0_tol = alpha_0 + tol
     #%%
     a_list = np.linspace(a0_tol, alpha_L, RES)
@@ -288,10 +326,10 @@ if __name__=="__main__":
                 fontsize=8)
         ax.plot(RAYS_X, RAYS_Y, 'k', lw=0.2)
 
-        ax.hlines(-50, -100, 100, 'k', lw=0.5)
-        ax.hlines(50, -100, 100, 'k', lw=0.5)
-        ax.vlines(-100, -50, 50, 'k', lw=0.5)
-        ax.vlines(100, -50, 50, 'k', lw=0.5)
+        # ax.hlines(-50, -100, 100, 'k', lw=0.5)
+        # ax.hlines(50, -100, 100, 'k', lw=0.5)
+        # ax.vlines(-100, -50, 50, 'k', lw=0.5)
+        # ax.vlines(100, -50, 50, 'k', lw=0.5)
         plt.axis('equal')
         plt.axis('off')
         plt.tight_layout()
