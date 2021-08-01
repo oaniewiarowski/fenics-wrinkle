@@ -6,33 +6,21 @@ Created on Fri Jul 30 23:41:53 2021
 @author: alexanderniewiarowski
 """
 
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Jul 30 12:15:16 2021
-
-@author: alexanderniewiarowski
-"""
-from dolfin import *
 import dolfin as df
+from dolfin import Constant, project, pi, dx, dot
 import fenics_optim as fo
 from fenicsmembranes.parametric_membrane import ParametricMembrane
-
-from fenics_wrinkle.materials.INH import INHMembrane
+# from fenics_wrinkle.materials.INH import INHMembrane
 from fenics_wrinkle.materials.svk import SVKMembrane
-from fenics_wrinkle.utils import eigenvalue
 from fenics_wrinkle.io import WrinklePlotter
-from fenics_wrinkle.bm_data import Mosler
-from fenics_wrinkle.utils import expand_ufl, eigenvalue
+from fenics_wrinkle.pressure import linear_volume_potential_split
 import numpy as np
-import sympy as sp
-import sympy.printing.ccode as ccode
 import scipy.interpolate
-import json
+
+
 from matplotlib import rc_file
 rc_file('../submission/journal_rc_file.rc')
 import matplotlib.pyplot as plt
-
 
 
 topological_dim = 2
@@ -64,23 +52,19 @@ for i, cell in enumerate(CON):
 # Close editor
 editor.close()
 
-
 f = df.File('mesh.pvd')
 f << mesh
 
-
 # %% Original pressures for comparison
-W = FunctionSpace(mesh, 'DG', 0)
+W = df.FunctionSpace(mesh, 'DG', 0)
 ret_dofmap = W.dofmap()
-
-p = Function(W)
+p = df.Function(W)
 
 PRESSURES = np.loadtxt("pressures.txt", dtype='float')
 assert(len(PRESSURES) == num_global_cells)
 
 temparray = np.zeros(num_global_cells)
-for c, mesh_cell in enumerate(cells(mesh)):
-
+for c, mesh_cell in enumerate(df.cells(mesh)):
     temparray[ret_dofmap.cell_dofs(mesh_cell.index())] = PRESSURES[c]
 
 p.vector()[:] = temparray
@@ -88,11 +72,10 @@ p.vector()[:] = temparray
 f = df.File('PRESSURES.pvd')
 f << p
 
-
-#%% build list of cell midpoints
+# %% build list of cell midpoints
 R = 10
 MID_PTS = []
-for c, mesh_cell in enumerate(cells(mesh)):
+for c, mesh_cell in enumerate(df.cells(mesh)):
     MID_PTS.append([v for v in mesh_cell.midpoint()])
 MID_PTS = np.array(MID_PTS)
 
@@ -103,8 +86,8 @@ for i, mp in enumerate(MID_PTS):
     corrected = mp*scale_factor
     NEW_MID_PTS[i] = corrected
     print(np.sqrt(corrected.dot(corrected)))
-    
-    #%%
+
+# %%
 # Build inverse mapping to parametric sphere
 PRM_COORDS = np.zeros((num_global_cells, 2))
 for i, mp in enumerate(NEW_MID_PTS):
@@ -117,38 +100,92 @@ for i, mp in enumerate(NEW_MID_PTS):
     xi = np.arccos(X/(R*np.sin(eta)))
     # print(xi, eta)
     PRM_COORDS[i] = [-xi, eta]
+    # x = -xi; y = eta
+    # a = -pi/2; b =- pi/2
+    # PRM_COORDS[i] = [a+b-y, x-a+b]
+
+
+
 
 #%%
 
-import fenics_wrinkle.geometry.sphere as sphere
-geo = sphere.ParametricSphere(R)
+PRM_COORDS = np.zeros((num_global_cells, 2))
+for i, mp in enumerate(NEW_MID_PTS):
+    X = mp[0]
+    Y = mp[2]
+    Z = mp[1]
+    t = -1/(Z/R+1)
+    PRM_COORDS[i] = [X/R*t, Y/R*t]
 
+# %%
+# import fenics_wrinkle.geometry.sphere as sphere
+# geo = sphere.ParametricSphere(R)
 
 
 def pinnedBCMembrane(membrane):
     bc = []
-    # bot = CompiledSubDomain("(near(x[1], 0) && on_boundary)")
-    
-    # top = CompiledSubDomain("(near(x[1], pi) && on_boundary)", pi=pi)
-    
-    left = CompiledSubDomain("(near(x[0], -pi) && on_boundary)", pi=pi)
-    
-    right = CompiledSubDomain("(near(x[0], 0) && on_boundary)", pi=pi)
-    bnd = CompiledSubDomain("on_boundary")
-    bc.append(DirichletBC(membrane.V, Constant((0,0,0)), bnd))
-    # bc.append(DirichletBC(membrane.V, Constant((0,0,0)), left))
-    # bc.append(DirichletBC(membrane.V, Constant((0,0,0)), right))
-    # bc.append(DirichletBC(membrane.V.sub(0), Constant((0)), left))
-    # bc.append(DirichletBC(membrane.V.sub(2), Constant((0)), left))
-    # bc.append(DirichletBC(membrane.V.sub(0), Constant((0)), right))
-    # bc.append(DirichletBC(membrane.V.sub(2), Constant((0)), right))
+    bnd = df.CompiledSubDomain("on_boundary")
+    bc.append(df.DirichletBC(membrane.V, Constant((0,0,0)), bnd))
     return bc
-    
-prm_mesh = df.RectangleMesh(Point(-pi,0), Point(0, pi), 15, 15)
+N = 60
+prm_mesh = df.RectangleMesh(df.Point(-pi, 0), df.Point(0, pi), N, N)
 
 
 
-V = FunctionSpace(prm_mesh, 'CG', 1)
+
+#%%
+
+import sympy as sp
+
+class ParametricSphere():
+    def __init__(self, radius):
+
+        self.r = radius
+
+        xi_1, xi_2, r = sp.symbols('x[0], x[1], r')
+
+        h = xi_1**2 + xi_2**2
+        X = r*2*xi_1/(h + 1)
+        Y = r*2*xi_2/(h + 1)
+        Z = -r*(h - 1)/(h + 1)
+
+        gamma_sp = [X, Y, Z]
+
+        ccode = lambda z: sp.printing.ccode(z)
+
+        gamma = df.Expression([ccode(val) for val in gamma_sp],
+                           r=radius,
+                           degree=4)
+        
+        # G_1 = ∂X/xi^1
+        Gsub1 = df.Expression([ccode(val.diff(xi_1)) for val in gamma_sp],
+                           r=radius,
+                           degree=4)
+
+        # G_2 = ∂X/xi^2
+        Gsub2 = df.Expression([ccode(val.diff(xi_2)) for val in gamma_sp],
+                           r=radius,
+                           degree=4)
+
+        self.gamma = gamma
+        self.Gsub1 = Gsub1
+        self.Gsub2 = Gsub2
+
+        
+def pinnedBCMembrane(membrane):
+    bc =[]
+    bnd = df.CompiledSubDomain("on_boundary")
+    bc.append(df.DirichletBC(membrane.V, Constant((0, 0, 0)), bnd))
+    return bc
+
+from mshr import *
+
+domain = Circle(df.Point(0, 0), 1)
+prm_mesh = generate_mesh(domain, 40)
+geo = ParametricSphere(10)
+
+
+V = df.FunctionSpace(prm_mesh, 'CG', 1)
 t = 0.005
 E = 0.5E9
 
@@ -157,7 +194,8 @@ mu = E/2/(1+nu)
 lamb = E*nu/(1+nu)/(1-2*nu)
 # lamb_bar = 2*lamb*mu/(lamb+2*mu)
 p = 200
-    
+
+
 class PressureInterpolator(df.UserExpression):
     def __init__(self, XY, P, **kwargs):
         super().__init__(**kwargs)
@@ -165,12 +203,18 @@ class PressureInterpolator(df.UserExpression):
         # XY = list(zip(X.ravel(), Y.ravel()))
         self.f = scipy.interpolate.CloughTocher2DInterpolator(XY, P.ravel(), fill_value=0)
         # self.f = scipy.interpolate.interp2d(XY[:,0], XY[:,1], P, kind='linear')
+
     def eval(self, values, x):
-        values[0] = self.f(x[0], x[1])
+        # x_ = x[0]
+        # y = x[1]
+        # a = -pi/2; b = pi/2
+        # p0, p1 = [a+b-y, x_-a+b]
+        #  self.f(p0, p1) # 
+        values[0] =self.f(x[0], x[1])
 
     def value_shape(self):
         return ()
-    
+
 
 p_prn = PressureInterpolator(PRM_COORDS, PRESSURES)
 
@@ -182,91 +226,19 @@ input_dict = {
         'mu': mu,
         'lmbda': lamb,
         'cylindrical': True,
-
         'output_file_path': 'parametric_wind',
         'pressure': p,
         'Boundary Conditions': pinnedBCMembrane,
-        # 'pbc': pbc,
         'inflation_solver': 'Custom Newton'}
 
 mem = ParametricMembrane(input_dict)
 mem.p_ext.assign(project(p_prn, V))
+
 mem.io.write_fields()
 mem.inflate(200)
 
 mem.u.vector()[:] = 0
 
-#%%
-def linear_volume_potential_split(mem):
-    import ufl
-    from ufl.algorithms import expand_derivatives
-    """
-
-    u_bar.(g1 x g2_bar) + u_bar.(g1_bar x g2) +\
-    u.g3_bar + X.(g1 x g2_bar) + X.(g1_bar x g2)
-
-    """
-
-    g1_bar = project(mem.gsub1, mem.V)
-    g2_bar = project(mem.gsub2, mem.V)
-    g3_bar = project(mem.gsub3, mem.V)
-    u_bar = df.Function(mem.V)
-    u_bar.assign(mem.u)
-    u = mem.u
-
-    # This generates a list of linear terms returned by expand_ufl
-    # Currently, expand_ufl doesn't support more complex expressions and
-    # it is not possible to accomplish this with one call to expand_ufl
-    # Vg1u + Vg2u + Vu
-    dV_LINu = expand_ufl(dot(u.dx(0), cross(g2_bar, u_bar))) +\
-              expand_ufl(dot(u.dx(1), cross(u_bar, g1_bar))) +\
-              expand_ufl(dot(u, g3_bar))
-    #  Vg1u_const + Vg2u_const
-    dV_LINu_const = expand_ufl(dot(mem.Gsub1, cross(g2_bar, u_bar))) +\
-                    expand_ufl(dot(mem.Gsub2, cross(u_bar, g1_bar)))
-
-
-    # Vg1X + Vg2X
-    dV_LINX = expand_ufl(dot(u.dx(0), cross(g2_bar,mem.gamma))) +\
-                  expand_ufl(dot(u.dx(1), cross(mem.gamma, g1_bar))) 
-                   
-                   
-      # Vg1X + Vg2X
-    dV_LINX_const = expand_ufl(dot(mem.Gsub1, cross(g2_bar, mem.gamma))) +\
-                    expand_ufl(dot(mem.Gsub2, cross(mem.gamma, g1_bar))) +\
-                    expand_ufl(dot(mem.gamma, g3_bar))
-    return dV_LINX + dV_LINu, dV_LINX_const + dV_LINu_const
-
-
-
-
-
-#%%
-def linear_volume_potential(mem, p):
-    """
-
-    u_bar.(g1 x g2_bar) + u_bar.(g1_bar x g2) +\
-    u.g3_bar + X.(g1 x g2_bar) + X.(g1_bar x g2)
-
-    """
-    g1_bar = project(mem.gsub1, mem.V)
-    g2_bar = project(mem.gsub2, mem.V)
-    g3_bar = project(mem.gsub3, mem.V)
-    u_bar = df.Function(mem.V)
-    u_bar.assign(mem.u)
-
-    u = mem.u
-
-    # This generates a list of linear terms returned by expand_ufl
-    # Currently, expand_ufl doesn't support more complex expressions and
-    # it is not possible to accomplish this with one call to expand_ufl
-    dV_LIN = expand_ufl(dot(u_bar, cross(mem.Gsub1 + u.dx(0), g2_bar))) +\
-              expand_ufl(dot(u_bar, cross(g1_bar, mem.Gsub2 + u.dx(1)))) +\
-              expand_ufl(dot(u, g3_bar)) +\
-              expand_ufl(dot(mem.gamma, cross(mem.Gsub1 + u.dx(0), g2_bar))) +\
-              expand_ufl(dot(mem.gamma, cross(g1_bar, mem.Gsub2 + u.dx(1))))
-
-    return dV_LIN
 
 #%%
 def mosek_inflate(self, p, i=0, max_iter=100, tol=1e-4):
@@ -287,25 +259,21 @@ def mosek_inflate(self, p, i=0, max_iter=100, tol=1e-4):
             _ = prob.add_var(self.V, bc=self.bc)
             prob.var[0] = u
 
-            # self.energy = energy = INHMembrane(u, self, degree=2)
-            # prob.add_convex_term(self.thickness*self.material.mu/2*self.J_A*energy)
-            
+
             self.energy = energy = SVKMembrane(u, self, lamb, mu, degree=2)
             prob.add_convex_term(Constant(t)*self.J_A*energy) # membrane.J_A
 
-            # U_air_list = linear_volume_potential(self, p)
-            # print(type(U_air_list[0]))
-            # for dU in U_air_list:
-            #     prob.add_obj_func(-Constant(p/3)*dU*dx(self.mesh))
-                
-                
-            vol_lin_u, vol_lin_const = linear_volume_potential_split(self)               
+
+
+            vol_lin_u, vol_lin_const = linear_volume_potential_split(self)
             for dv in vol_lin_u:
                 prob.add_obj_func(-Constant(p/3)*dv*dx(self.mesh))
             for dv in vol_lin_const:
                 prob.add_obj_func(-Constant(p/3)*dv*dx(self.mesh))
+
             g3_bar = project(mem.gsub3, mem.V)
             prob.add_obj_func(dot(self.p_ext*g3_bar,u)*dx(self.mesh))
+
             io = WrinklePlotter(self, energy)
             self.io.add_plotter(io.plot, 'output/xdmf_write_interval', 0)
             prob.parameters["presolve"] = True
@@ -321,3 +289,74 @@ def mosek_inflate(self, p, i=0, max_iter=100, tol=1e-4):
 
             self.io.write_fields()
     return E_list, itr
+
+
+
+
+#%%
+
+
+class LogSolver:
+    def __init__(self, mem):
+        self.mem =mem
+
+    def solve(self, p, i=0, max_iter=100, tol=1e-4):
+        mem = self.mem
+        R = df.FunctionSpace(mem.mesh, "Real", 0)
+        R3 = df.VectorFunctionSpace(mem.mesh, "Real", 0, dim=3)
+        u = mem.u
+        
+        self.E_list = E_list = []
+        E = 1
+        itr = 0
+        self.VOL = VOL = []
+    
+        u_old = df.Function(mem.V)
+        u_old.assign(mem.u)
+        # for j in range(itr):
+        with df.Timer(f"Mosek Inflate Interval {i}, Iteration {itr}"):
+            while E > tol:
+                if itr > max_iter:
+                    break
+    
+                prob = fo.MosekProblem("log-term")
+                y, u_ = prob.add_var([R3, mem.V], cone=[fo.Exp(3), None], bc=[None, mem.bc], name=['y','_u'])
+                prob.var[1] = mem.u 
+                u = mem.u
+                vol_lin_u, vol_lin_const = linear_volume_potential_split(mem)
+    
+                prob.add_eq_constraint(R, A=lambda mu: [mu * y[1] * dx(mem.mesh)], b=1, name='one')
+                prob.add_obj_func([-(3*mem.gas.constant) * y[2] * dx(mem.mesh)])
+    
+                # y_0 = \int V_hat
+                prob.add_eq_constraint(R, A=lambda mu: [mu * y[0] * dx(mem.mesh),
+                                                    -mu*(Constant(1/3)*sum(vol_lin_u)*dx(mem.mesh))],
+                                b=lambda mu: mu*(Constant(1/3)*sum(vol_lin_const)*dx(mem.mesh)), name='lamb')
+    
+    
+                g3_bar = project(mem.gsub3, mem.V)
+                prob.add_obj_func([None, dot(mem.p_ext*g3_bar,u)*dx(mem.mesh)])
+    
+                mem.energy = energy = SVKMembrane(u, mem, lamb, mu, degree=2)
+                prob.add_convex_term(Constant(t)*mem.J_A*energy)
+    
+                io = WrinklePlotter(mem, energy)
+                mem.io.add_plotter(io.plot, 'output/xdmf_write_interval', 0)
+                prob.parameters["presolve"] = True
+                prob.optimize()
+                l1 = np.mean(df.project(mem.lambda1, mem.Vs).compute_vertex_values(mem.mesh))
+                # E = l1 - l1_old
+                E = df.errornorm(u, u_old)
+                E_list.append(E)
+                VOL.append(df.assemble(Constant(1/3)*(sum(vol_lin_u)+sum(vol_lin_const))*dx(mem.mesh))/3)
+                print(f'E={E},  l1={l1}, itr={itr}')
+                itr += 1
+                # l1_old = l1
+                u_old.assign(u)
+    
+                mem.io.write_fields()
+        # return E_list, itr
+
+solver = LogSolver(mem)
+
+solver.solve(200, max_iter=10)
