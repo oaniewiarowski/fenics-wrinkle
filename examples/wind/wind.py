@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 
 # To add small radial displacement to simulate hoop prestress
 HOOP_PRESTRESS = True
-LOAD = 'symmetric'
+LOAD = 'asymmetric'
 
 R_f = 10  # m
 t = 0.005  # 5 mm
