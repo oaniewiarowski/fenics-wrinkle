@@ -106,9 +106,12 @@ class WrinklePlotter:
                                      form_compiler_parameters=self.fcp
                                      ).compute_vertex_values()
             self.s1_max = df.Constant(max(s1_vertex_vals))
+            
+        if not hasattr(self, 'thresh'):
+            self.thresh = df.Constant(1e-2)  # df.Constant(0.01)
 
         s1_max = self.s1_max
-        thresh = df.Constant(1e-2)  # df.Constant(0.01)
+        thresh = self.thresh 
 
         # s_1 > thresh*s1_max ?
         s1_gt = df.gt(s1, thresh*s1_max)
