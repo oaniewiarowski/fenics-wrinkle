@@ -18,123 +18,6 @@ from ufl import zero as O
 from ufl import Index, indices
 
 
-
-# class _NonLinearMembrane(ConvexFunction):
-#     def conic_repr(self, u, mem):
-#         Gsub1 = mem.Gsub1
-#         Gsub2 = mem.Gsub2
-#         C0 = mem.C_0
-#         t = float(mem.thickness)
-
-
-#         E_ = 3500
-#         nu = 0.31
-#         mu = E_/2/(1+nu)
-#         lamb = E_*nu/(1+nu)/(1-2*nu)
-#         C = t*np.array([[lamb+2*mu, lamb,      0    ],
-#                       [lamb,      lamb+2*mu, 0    ],
-#                       [0,         0,         2*mu]])
-#         # C = Q^T*Q
-#         Q = np.linalg.cholesky(C)
-#         Qinv = as_matrix(np.linalg.inv(Q))
-
-
-
-#         # y := [z0, z1, e_11, e_22, e_12] = [ ]
-#         y = self.add_var(dim=5, cone=RQuad(5), name="y")
-
-#         # elastic strain
-#         # Q*e_e - y = 0
-#         Eel = dot(Qinv.T, get_slice(y, 2))  # => [y2, y3, y4]
-#         '''
-#         # shouldn't Eel be?:
-#         y_bar = as_vector([y[2], y[3], 2*y[4]])
-#         Eel = dot(Q.T, y_bar)
-#         '''
-#         self.add_eq_constraint([None, y[1]], b=1)  # dummy variable for Mosek
-
-#         vect_Z = self.add_var(dim=15, cone=SDP(5))
-
-#         vect_grad_u_transp = as_vector([0, 0, 0, 0, 0,
-#                                         0, X[3], 0, 0,
-#                                         X[0], X[4], 0,
-#                                         X[1], X[5],
-#                                         X[2]])
-#         vect_Eel = as_vector([-2*Eel[0], -2*Eel[1], 0, 0, 0,
-#                               -2*Eel[2], 0, 0, 0,
-#                               0, 0, 0,
-#                               0, 0,
-#                               0])
-#         vect_I = as_vector([C0[0,0], C0[1,1], 1, 1, 1,
-#                             C0[0,1], -Gsub2[0], 0, 0,
-#                             -Gsub1[0], -Gsub2[1], 0,
-#                             -Gsub1[1], -Gsub2[2],
-#                             -Gsub1[2]])
-
-#         # e - e_e + e_w = 0 ??? (confused about the signs here)
-#         self.add_eq_constraint([vect_grad_u_transp, vect_Eel, vect_Z], b=vect_I)  # b=0
-#         self.set_linear_term([None, y[0]])  #  y_0 = w_ref
-# class NonLinearMembrane(ConvexFunction):
-#     def conic_repr(self, u):
-
-#         # X = as_vector([u[0].dx(0), u[1].dx(0), u[2].dx(0), \
-#         #            u[0].dx(1), u[1].dx(1), u[2].dx(1)])
-#         y = self.add_var(dim=5, cone=RQuad(5), name="y")
-       
-#         Eel = dot((Qinv.T), get_slice(y, 2))  # => [y2, y3, y4] 
-#         self.add_eq_constraint([None, y[1]], b=1)
-#         self.set_linear_term([None, y[0]])      
-
-#         vect_Z = self.add_var(dim=15, cone=SDP(5))
-
-#         # vect_grad_u_transp = as_vector([0, 0, 0, 0, 0,
-#         #                                 0, X[3], 0, 0,
-#         #                                 X[0], X[4], 0,
-#         #                                 X[1], X[5],
-#         #                                 X[2]])
-#         vect_grad_u_transp = as_vector([0, 0, 0, 0, 0,
-#                                         0, u[0].dx(1), 0, 0,
-#                                         u[0].dx(0), u[1].dx(1), 0,
-#                                         u[1].dx(0), u[2].dx(1),
-#                                         u[2].dx(0)])
-#         vect_Eel = as_vector([-2*Eel[0], -2*Eel[1], 0, 0, 0,
-#                               -2*Eel[2], 0, 0, 0,
-#                               0, 0, 0,
-#                               0, 0,
-#                               0])
-#         vect_I = as_vector([C0[0,0], C0[1,1], 1, 1, 1,
-#                             C0[0,1], -Gsub2[0], 0, 0,
-#                             -Gsub1[0], -Gsub2[1], 0,
-#                             -Gsub1[1], -Gsub2[2],
-#                             -Gsub1[2]])
-        
-#         # vect_I = as_vector([200*200, 100*100, 1, 1, 1,
-#         #                     0, 0, 0, 0,
-#         #                     -200, -100, 0,
-#         #                     0, 0,
-#         #                     0])
-
-#         # e - e_e + e_w = 0 ??? (confused about the signs here)
-#         self.add_eq_constraint([vect_grad_u_transp, vect_Eel, vect_Z], b=vect_I)  # b=0
-
-
-
-# class NonLinearMembrane2D(ConvexFunction):
-#     def conic_repr(self, u):
-#         X = as_vector([u[0].dx(0), u[1].dx(1), u[0].dx(1), u[1].dx(0)])
-#         y = self.add_var(dim=5, cone=RQuad(5), name="y")
-       
-#         Eel = dot((Qinv.T), get_slice(y, 2))  # => [y2, y3, y4] 
-#         self.add_eq_constraint([None, y[1]], b=1)
-#         self.set_linear_term([None, y[0]])      
-        
-#         vect_Z = self.add_var(dim=10, cone=SDP(4))
-#         vect_grad_u_transp = as_vector([0, 0, 0, 0, 0, X[2], 0, X[0], X[1], X[3]])
-#         vect_Eel = as_vector([-2*Eel[0], -2*Eel[1], 0, 0, -2*Eel[2], 0, 0, 0, 0, 0])
-#         vect_I = as_vector([C0[0,0], C0[1,1], 1, 1, 
-#                             0,  -Gsub2[0], 0,  -Gsub1[0], -Gsub2[1], 0])
-    
-#         self.add_eq_constraint([vect_grad_u_transp, vect_Eel, vect_Z], b=vect_I)
 def cmat_contra(A):
     
     rows = []
@@ -213,12 +96,10 @@ class SVKMembrane(ConvexFunction):
         y_bar = get_slice(y, 2)
         # y_bar = as_vector([y_bar[0], y_bar[1], y_bar[2]])
         # Eel = dot(Qinv.T, y_bar)  # => [y2, y3, y4]
-        
-        
+
         # Eel = dot(inv(self.Q.T), y_bar)  # => [y2, y3, y4]
         Eel = dot(self.Qinv, y_bar)  # => [y2, y3, y4]
 
-        
         self.E_el = E_el = as_matrix([[Eel[0], Eel[2]/2],
                                       [Eel[2]/2, Eel[1]]])
         self.add_eq_constraint([None, y[1]], b=1)
