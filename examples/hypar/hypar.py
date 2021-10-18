@@ -17,11 +17,11 @@ import mshr
 
 bm = KannoIsotropic()
 
-QUAD_DEGREE = 3
+QUAD_DEGREE = 2
 width = w = 10/df.sqrt(2)
 height = h = 10/df.sqrt(2)
 H = 5/df.sqrt(2)  # vertical displacement of the hypar
-N = 30  # mesh resolution
+N = 30/2  # mesh resolution
 c = 1/df.sqrt(2)  # in-plane stretching
 POINT = False
 
@@ -88,7 +88,7 @@ top.mark(mesh_func, 2)
 left.mark(mesh_func, 3)
 right.mark(mesh_func, 4)
 
-df.File('results/mesh_boundaries.pvd') << mesh_func
+df.File(f'results/mesh_boundaries.pvd') << mesh_func
 
 #%%
 class Geometry:
@@ -108,7 +108,7 @@ input_dict = {
         'material': 'Incompressible NeoHookean',
         'mu': bm.mu,
         'cylindrical': False,
-        'output_file_path': 'results/hypar',
+        'output_file_path': f'results/hypar',
         'pressure': 0,
         'Boundary Conditions': bc}
 
@@ -128,8 +128,12 @@ prob.parameters["presolve"] = True
 
 prob.optimize()
 
+#%%
+for eps in [.005, .01, .02, .03, .04, 0.05,  .1]:
+    io = WrinklePlotter(mem, energy)
+    io.s1_max = Constant(420)
+    io.thresh = Constant(eps)
+    mem.io.add_plotter(io.plot, 'output/xdmf_write_interval', 0)
+    mem.io.write_fields()
 
-io = WrinklePlotter(mem, energy)
-io.s1_max =Constant(420)
-mem.io.add_plotter(io.plot, 'output/xdmf_write_interval', 0)
-mem.io.write_fields()
+

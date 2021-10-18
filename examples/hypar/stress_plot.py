@@ -43,19 +43,19 @@ if __name__ == "__main__":
     # ax0.plot(df['Points:0'], df.sigma_2, label=r'$\sigma_2$')
     x = df['arc_length']
     x = x-(x.max()-x.min())/2
-    ax0.plot(x, df.sigma_1, label=r'$\sigma_1$')
-    ax0.plot(x, df.sigma_2, label=r'$\sigma_2$')
+    ax0.plot(x, df.sigma_1, label=r'$\sigma_1$', lw=1)
+    ax0.plot(x, df.sigma_2, label=r'$\sigma_2$', lw=1)
 
 
     ax0.set_xlabel(r'$S (mm)$')
     ax0.set_ylabel(r'$\sigma$')
     ax0.legend()
     
-    ax1.plot(x, df.E_el1, label=r'$E_el1$')
-    ax1.plot(x, df.E_el2, label=r'$E_el2$')
+    ax1.plot(x, df.E_el1, label=r'$\lambda_1(E_e)}$', lw=1)
+    ax1.plot(x, df.E_el2, label=r'$\lambda_2(E_e)}$', lw=1)
     
     ax1.set_xlabel(r'$S (mm)$')
-    ax1.set_ylabel(r'$\sigma$')
+    ax1.set_ylabel(r'$E_e$')
     ax1.legend()
     
     ax0.grid(True)
