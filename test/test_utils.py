@@ -7,8 +7,10 @@ Created on Thu May 13 15:03:21 2021
 """
 
 import unittest
-from dolfin import UnitSquareMesh, as_matrix, sqrt, assemble, inner, dx
-from wrinkle.utils import as_block_matrix
+from dolfin import (UnitSquareMesh, FunctionSpace, VectorFunctionSpace,
+                    as_matrix, as_tensor, project,
+                    sqrt, assemble, inner, dx, Identity, pi, cos, sin)
+from fenics_wrinkle.utils import (as_block_matrix, eigenvalue, eig_vecmat)
 import numpy as np
 
 
@@ -77,7 +79,7 @@ class TestBlockMatrix(unittest.TestCase):
                          0, 'The arrays are not equal!')
 
     def test_block_to_vec(self):
-        from wrinkle.utils import to_vect
+        from fenics_wrinkle.utils import to_vect
         I3 = -as_matrix([[1, 2, 3],
                          [4, 5, 6],
                          [7, 8, 9]])
@@ -101,6 +103,29 @@ class TestBlockMatrix(unittest.TestCase):
                     actual={print(act)}'
         self.assertEqual(sqrt(assemble(inner(err, err)*dx(domain=self.mesh))),
                          0, errmsg)
+
+    def test_eigentools(self):
+        eig_test(2*Identity(2))
+        theta = pi/4
+        R = as_tensor([[cos(theta), -sin(theta)],
+                       [sin(theta), cos(theta)]])
+        I = as_tensor([[2, 0], [0, 1]])
+        test = R*I*R.T
+        eig_test(test)
+
+
+def eig_test(A):
+    mesh = UnitSquareMesh(10, 10)
+    l1, l2 = eigenvalue(A)
+    v1, v2 = eig_vecmat(A)
+    V = FunctionSpace(mesh, 'CG', 1)
+    S = VectorFunctionSpace(mesh, 'CG', 1)
+    print("The eigenvalues are:",
+          project(l1, V)(0.5, 0.5),
+          project(l2, V)(0.5, 0.5))
+    print("The eigenvectors are:",
+          project(v1, S)(0.5, 0.5),
+          project(v2, S)(0.5, 0.5))
 
 
 if __name__ == "__main__":
