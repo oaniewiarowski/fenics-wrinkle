@@ -17,15 +17,14 @@ from fenics_optim import *
 from fenics_optim.quadratic_cones import get_slice
 import matplotlib.pyplot as plt
 import numpy as np
-from bm_data import *
+from fenics_wrinkle.bm_data import *
 
 bm = KannoIsotropic()
-np.testing.assert_array_almost_equal_nulp(C(bm.lamb_bar, bm.mu), C_plane_stress(bm.E, bm.nu))
 
-N = 20
+N = 1
 ux = 1
 uy = 1
-mesh = RectangleMesh(Point(0,0), Point(bm.width, bm.height), 2*N, N)
+mesh = RectangleMesh(Point(0,0), Point(bm.width, bm.height), N, N)
 V = VectorFunctionSpace(mesh, "CG", 2)
 
 
