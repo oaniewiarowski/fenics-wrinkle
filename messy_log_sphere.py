@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from fenics_wrinkle.bm_data import KannoIsotropic
 from fenics_wrinkle.materials.INH import INHMembrane
-# from fenics_wrinkle.materials.svk import *
+
 import sympy as sp
 import sympy.printing.ccode as ccode
 
@@ -39,19 +39,27 @@ from fenics_wrinkle.io import WrinklePlotter
 bm = KannoIsotropic()
 
 N = 30
-p = .01
+p = 5
 
 
 
 import fenics_wrinkle.geometry.sphere as sphere
-mesh = df.RectangleMesh(sphere.p0, sphere.p1, 60, 15)
+mesh = df.RectangleMesh(sphere.p0, sphere.p1, 20, 20)
 sph = False
 R = 1
 mu = 500
 T = 0.01
 geo = sphere.ParametricSphere(R)
 pbc = sphere.PeriodicBoundary()
+def pinnedBCMembrane(membrane):
+    bc = []
+    bot = df.CompiledSubDomain("(near(x[1], 0) && on_boundary)")
+    top = df.CompiledSubDomain("(near(x[1], pi/2) && on_boundary)", pi=df.pi)
+    bc.append(df.DirichletBC(membrane.V, Constant((0,0,0)), top))
+    # bc.append(df.DirichletBC(membrane.V.sub(0), Constant((0)), bot))
+    # bc.append(df.DirichletBC(membrane.V.sub(1), Constant((0)), bot))
 
+    return bc
 input_dict = {
         'mesh': mesh,
         'geometry': geo,
@@ -59,9 +67,9 @@ input_dict = {
         'material': 'Incompressible NeoHookean',
         'mu': mu,
         'output_file_path': 'updated_lagrangian_check',
-        'cylindrical': True,
+        'cylindrical': False,
         'pressure': p,
-        'Boundary Conditions': sphere.pinnedBCMembrane,
+        'Boundary Conditions': pinnedBCMembrane,
         'pbc': pbc,
         'inflation_solver': 'Custom Newton'}
 
@@ -91,35 +99,31 @@ dV = (1/3)*dot(membrane.gamma+membrane.u, membrane.gsub3)*dx(membrane.mesh)
 
 
 
-PI = membrane.Pi - Constant(p)*dV
+PI = membrane.Pi - Constant(p)*dV 
 F = df.derivative(PI, membrane.u, membrane.v)
 df.solve(F==0, membrane.u, membrane.bc)
 membrane.io.write_fields()
+boyle_nrm = membrane.gas.constant
 
+# add pressure constrained loading
+khat = Constant((0,0,-1))
+PI -= df.dot(khat,membrane.u)*dx(membrane.mesh)
+F = df.derivative(PI, membrane.u, membrane.v)
+df.solve(F==0, membrane.u, membrane.bc)
+
+membrane.io.write_fields()
 print("Total Potential:", assemble(PI))
 print("Elastic Potential:", assemble(membrane.Pi))
 print("Volume Potential:", assemble(- Constant(p)*dV))
 print("Volume:", assemble(dV))
 
-if input_dict['Boundary Conditions'] == 'Roller':
-    computed_stretches = project(membrane.l1, membrane.Vs).compute_vertex_values(membrane.mesh)
-    computed = 1 - (1/pow(computed_stretches, 4))
-    analytical = p*1/(bm.mu*bm.t)
-    np.testing.assert_array_almost_equal(computed[:], analytical, decimal=4)
-
+boyle_pressure_check = float(boyle_nrm/membrane.calculate_volume(membrane.u))
+boyle_vol_check = float(membrane.calculate_volume(membrane.u))
 
 
 #%% 1) Convex problem setup
 
-def pinnedBCMembrane(membrane):
-    bc = []
-    bot = df.CompiledSubDomain("(near(x[1], 0) && on_boundary)")
-    top = df.CompiledSubDomain("(near(x[1], pi/2) && on_boundary)", pi=df.pi)
-    bc.append(df.DirichletBC(membrane.V, Constant((0,0,0)), top))
-    # bc.append(df.DirichletBC(membrane.V.sub(0), Constant((0)), bot))
-    # bc.append(df.DirichletBC(membrane.V.sub(1), Constant((0)), bot))
 
-    return bc
 
 input_dict = {
         'mesh': mesh,
@@ -128,27 +132,37 @@ input_dict = {
         'material': 'Incompressible NeoHookean',
         'mu': mu,
         'output_file_path': 'inflation_log_term_sphere',
-        'cylindrical': True,
+        'cylindrical': False,
         'pressure': p,
         'Boundary Conditions': pinnedBCMembrane,
         'pbc': pbc,
         'inflation_solver': 'Custom Newton'}
-
+khat = Constant((0,0,-1))
 mem = ParametricMembrane((input_dict))
 mem.inflate(p)
+print("Volume:", float(mem.calculate_volume(mem.u)))
+dV = dot(mem.gamma+mem.u, mem.gsub3)*dx(mem.mesh)
+PI = mem.Pi - Constant(p/3)*dV  - df.dot(khat,mem.u)*dx(mem.mesh)
+F = df.derivative(PI, mem.u, mem.v)
+df.solve(F==0, mem.u, mem.bc)
 mem.io.write_fields()
+boyle_nrm = membrane.gas.constant
+boyle_pressure_check = float(boyle_nrm/mem.calculate_volume(mem.u))
+boyle_vol_check = float(mem.calculate_volume(mem.u))
+
 dv = (1/3)*dot(mem.gamma+mem.u, mem.gsub3)*dx(mem.mesh)
-boyle_nobd = p*assemble(dv)
 
 print("Elastic Potential:", assemble(mem.Pi))
 print("Volume:", float(mem.calculate_volume(mem.u)))
+
+#%%
 ##%% 3) Begin trilinearization loop
 PI_INT = []
 VOL = []
 NORM_u = [norm(mem.u)]
 
 PI_INT.append(assemble(mem.Pi))
-VOL.append(float(mem.calculate_volume(mem.u)))
+VOL.append(boyle_vol_check)
 
 gsub1 = project(mem.gsub1, mem.V)
 gsub2 = project(mem.gsub2, mem.V)
@@ -156,10 +170,10 @@ gsub3 = project(mem.gsub3, mem.V)
 NORM_g1 = [norm(gsub1)]
 NORM_g2 = [norm(gsub2)]
 NORM_g3 = [norm(gsub3)]
-mem.u.vector()[:]=0
-gsub1 = project(mem.gsub1, mem.V)
-gsub2 = project(mem.gsub2, mem.V)
-gsub3 = project(mem.gsub3, mem.V)
+# mem.u.vector()[:]=0
+# gsub1 = project(mem.gsub1, mem.V)
+# gsub2 = project(mem.gsub2, mem.V)
+# gsub3 = project(mem.gsub3, mem.V)
 u = mem.u
 u_old = df.Function(mem.V)
 u_old.assign(u)
@@ -189,23 +203,23 @@ def linear_volume_potential_split(mem):
     # Currently, expand_ufl doesn't support more complex expressions and
     # it is not possible to accomplish this with one call to expand_ufl
     # Vg1u + Vg2u + Vu
-    dV_LINu = expand_ufl(dot(u.dx(0), cross(g2_bar, u_bar))) +\
-              expand_ufl(dot(u.dx(1), cross(u_bar, g1_bar))) +\
-              expand_ufl(dot(u, g3_bar))
+    # dV_LINu = expand_ufl(dot(u.dx(0), cross(g2_bar, u_bar))) +\
+    #           expand_ufl(dot(u.dx(1), cross(u_bar, g1_bar))) +\
+    dV_LINu = expand_ufl(dot(u, g3_bar))
     #  Vg1u_const + Vg2u_const
-    dV_LINu_const = expand_ufl(dot(mem.Gsub1, cross(g2_bar, u_bar))) +\
-                    expand_ufl(dot(mem.Gsub2, cross(u_bar, g1_bar)))
+    dV_LINu_const = []#expand_ufl(dot(mem.Gsub1, cross(g2_bar, u_bar))) +\
+                    # expand_ufl(dot(mem.Gsub2, cross(u_bar, g1_bar)))
 
 
     # Vg1X + Vg2X
-    dV_LINX = expand_ufl(dot(u.dx(0), cross(g2_bar,mem.gamma))) +\
-                  expand_ufl(dot(u.dx(1), cross(mem.gamma, g1_bar))) 
+    dV_LINX = []#expand_ufl(dot(u.dx(0), cross(g2_bar,mem.gamma))) +\
+                  # expand_ufl(dot(u.dx(1), cross(mem.gamma, g1_bar))) 
                    
                    
      # Vg1X + Vg2X
-    dV_LINX_const = expand_ufl(dot(mem.Gsub1, cross(g2_bar, mem.gamma))) +\
-                    expand_ufl(dot(mem.Gsub2, cross(mem.gamma, g1_bar))) +\
-                    expand_ufl(dot(mem.gamma, g3_bar))
+    # dV_LINX_const = expand_ufl(dot(mem.Gsub1, cross(g2_bar, mem.gamma))) +\
+    #                 expand_ufl(dot(mem.Gsub2, cross(mem.gamma, g1_bar))) +\
+    dV_LINX_const =                expand_ufl(dot(mem.gamma, g3_bar))
     return dV_LINX + dV_LINu, dV_LINX_const + dV_LINu_const
 
 
@@ -220,19 +234,10 @@ for i in range(3):
     y, u_ = prob.add_var([R3, mem.V], cone=[fo.Exp(3), None], bc=[None] + mem.bc, name=['y','_u'])
 
     prob.var[1] = mem.u
+    prob.add_obj_func( -df.dot(khat, mem.u)*dx(mem.mesh))
 
 
 
-
-    if mat == 'Incompressible NeoHookean':
-        g1_bar = project(mem.u.dx(0), mem.V)
-        g2_bar = project(mem.u.dx(1), mem.V)
-        energy = INHMembrane(u, mem, degree=2)
-        prob.add_convex_term(bm.t*bm.mu/2*mem.J_A*energy)
-        # energy = INHMembrane(u, mem, g1_bar=g1_bar, degree=2)
-        # energy2 = INHMembrane(u, mem,  g2_bar=g2_bar, degree=2)
-        # prob.add_convex_term(bm.t*bm.mu/2*mem.J_A*energy)
-        # prob.add_convex_term(bm.t*bm.mu/2*mem.J_A*energy2)
     # Volume terms
     dV1 = Constant(1/3)*dot(u, gsub3)*dx(mem.mesh)
     dV2 = Constant(1/3)*dot(mem.gamma, gsub3)*dx(mem.mesh)
@@ -241,25 +246,18 @@ for i in range(3):
     prob.add_eq_constraint(R, A=lambda mu: [mu * y[1] * dx(mem.mesh)], b=1, name='one') 
 
 
-    boyle = Constant(float(mem.gas.constant))
-    prob.add_obj_func(-Constant(boyle) * y[2] * dx(mem.mesh))
-    
+    prob.add_obj_func(-Constant(boyle_nrm) * y[2] * dx(mem.mesh))
+
     
 
     # dvlin = (linear_volume_potential(mem))
     dvlin_split, dvlinconst = linear_volume_potential_split(mem)
     # dvlin2, dvlin3 = (linear_volume_potential(mem))
-    prob.add_eq_constraint(R, A=lambda mu: [mu * Constant(3)*y[0] * dx(mem.mesh),
+    prob.add_eq_constraint(R, A=lambda mu: [mu * Constant(1)*y[0] * dx(mem.mesh),
                                             -mu*Constant(1/3)*sum(dvlin_split)*dx(mem.mesh)  ], 
                            b=lambda mu: mu*Constant(1/3)*sum(dvlinconst)*dx(mem.mesh) , name='lamb') 
-    
-    # prob.add_eq_constraint(R, A=lambda mu: [mu * y[0] * dx(mem.mesh), 
-                                            # -mu*Constant(1/3)*sum(dvlin3)*dx(mem.mesh) -mu*Constant(1/3)*sum(dvlin2)*dx(mem.mesh)])
-    # prob.add_eq_constraint(R, A=lambda mu: [mu * y[0] * dx(mem.mesh), sum(
-    #                                         [-mu*Constant(1/9)*d*dx(mem.mesh)for d in dvlin3] + [-mu*Constant(1/6)*d*dx(mem.mesh) for d in dvlin2])])
-    
-    # prob.add_eq_constraint(R, A=lambda mu: [mu * y[0] * dx(mem.mesh), (1/3)*dot(mem.gamma, cross(mem.gsub1, gsub2))*dx(mem.mesh) + (1/3)*dot(mem.gamma, cross(gsub1, mem.gsub2))*dx(mem.mesh) + (1/3)*dot(mem.u, gsub3)*dx(mem.mesh) + (1/3)*dot(u_old, cross(mem.gsub1, gsub2))*dx(mem.mesh) + (1/3)*dot(u_old, cross(gsub1, mem.gsub2))*dx(mem.mesh)])
-
+    energy = INHMembrane(u, mem, degree=2)
+    prob.add_convex_term(bm.t*bm.mu/2*mem.J_A*energy)
     io = WrinklePlotter(mem, energy)
     mem.io.add_plotter(io.plot, 'output/xdmf_write_interval', 0)    
 
@@ -290,7 +288,7 @@ for i in range(3):
     y2 =assemble(y[2]*dx(mem.mesh))
     y0 =assemble(y[0]*dx(mem.mesh))
     print(-y2)
-    b=float(boyle)
+    b=float(boyle_nrm)
     print(-y2*b)
     print( -b*df.ln(y0))
 
@@ -299,10 +297,10 @@ for i in range(3):
     [print(assemble(prob.get_var('y')[i]*dx(mem.mesh))) for i in range(3)]
     print('x.n', assemble(dot(mem.get_position(),mem.gsub3)*dx(mem.mesh))/3)
 lamb = prob.get_lagrange_multiplier('lamb')
-print(assemble(Constant(lamb)*((Constant(1/3)*sum(dvlin_split) + Constant(1/3)*sum(dvlinconst))*dx(mem.mesh) )))
-plot_result()
+print(assemble(Constant(lamb)*((Constant(1/9)*sum(dvlin_split) + Constant(1/9)*sum(dvlinconst))*dx(mem.mesh) )))
+# plot_result()
 
-#%% plot
+##%% plot
 def plot_result():
     title = f"{input_dict['Boundary Conditions']}: {mat}, p:{p} \n {input_dict['cylindrical']}"
     fig, ax = plt.subplots(2,2, figsize=[8,12])
