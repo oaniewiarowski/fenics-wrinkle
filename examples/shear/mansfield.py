@@ -26,8 +26,8 @@ tol = 1e-3
 alpha_L = np.pi/2
 
 a = sp.sympify(100)  # height
-u = sp.sympify(5)  # ux mm
-v = sp.sympify(1)  # uy mm
+u = sp.sympify(0.6) #sp.sympify(0.06) # sp.sympify(5)  # ux mm
+v = sp.sympify(0.2) #sp.sympify(0.02)  #  sp.sympify(1)  # uy mm
 E = 3500  # youngs modulus
 t = 0.025
 
@@ -132,8 +132,7 @@ def calculate_phi():
     
     return E * t * u_hat**2 * integrate.romberg(integrand_, a0_tol, alpha_L)
 
-phi = calculate_phi()
-phi = phi.evalf()
+
 #%%
 
 if __name__=="__main__":
@@ -151,10 +150,10 @@ if __name__=="__main__":
     
     # assert float(alpha_star) < float(alpha_0)
     # alpha_0 guesses for u = 5
-    guess_low = 0.9011748657226564 # 0.886
-    guess_high  =  0.9011760559082032 # 0.925
+    guess_low =  float(alpha_star) + 1e-2 #0.9590609815679491  #0.886 # 0.9011748657226564 #
+    guess_high  = 1.1  # 0.9590609817281366 #0.925 # 0.9011760559082032 #
     x_guessed = []
-    N = 10
+    N = 30
     # alpha_0 = bisection(f, guess_low, guess_high, N)
     '''
     1
@@ -249,7 +248,11 @@ if __name__=="__main__":
     '''
     # alpha_0 = 0.9011754608154298
     # 0.9011754608154298 for u =5, N=15 itr
-    alpha_0 =  0.9011756171435119 #for u 5 N=25
+    # alpha_0 =  0.9011756171435119 #for u 5 N=25 RES 2000
+    # alpha_0 = 0.9011692800628954 #for u5v1 RES3000 N30
+    # alpha_0 = 0.9590609817181248 # u=.06, v0.02 mmRES2000
+    # alpha_0 = 1.1819436123644467 for u 0.01, v = 0.01 # doesn't give good reuslts
+    alpha_0 = 0.9590609817200074 # for .6, .2
     a0_tol = alpha_0 + tol
     #%%
     a_list = np.linspace(a0_tol, alpha_L, RES)
@@ -275,8 +278,8 @@ if __name__=="__main__":
     
     # %%
     # this takes a while
-    x0 = np.linspace(0, 100, 100)
-    y = np.linspace(-50, 50, 50)
+    x0 = np.linspace(0, 100, 200)
+    y = np.linspace(-50, 50, 100)
     X0, Y = np.meshgrid(x0, y)
     XS, YS, ES = strain_x0(X0, Y)
     
@@ -284,28 +287,42 @@ if __name__=="__main__":
     E_Y = np.vstack((-YS, YS))
     ES = np.vstack((ES, ES))
     #%%
-    x0 = np.linspace(0, 100, 25)
-    y = np.linspace(-50, 50, 50)
+    x0 = np.linspace(0, 100, 10)
+    y = np.linspace(-50, 50, 20)
     X0_course, Y_course = np.meshgrid(x0, y)
     XS_course, YS_course = x0_to_x(X0_course, Y_course)
     RAYS_X = np.vstack((-XS_course, XS_course))
     RAYS_Y = np.vstack((-YS_course, YS_course))
     
+    #%%
+    fig, ax = plt.subplots(figsize=[3.25,1.75])
+    ax.plot(RAYS_X, RAYS_Y, 'k', lw=0.2)
+    ax.hlines(-50, -100, 100, 'k', lw=0.5)
+    ax.hlines(50, -100, 100, 'k', lw=0.5)
+    ax.vlines(-100, -50, 50, 'k', lw=0.5)
+    ax.vlines(100, -50, 50, 'k', lw=0.5)
+    plt.axis('equal')
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig(out_path+f'rays.pdf', dpi=600)
+    #%%
+    phi = calculate_phi()
+    phi = phi.evalf()
 
     #%%
     out_path = '../submission/figures/'
     if not os.path.exists(out_path):
         os.makedirs(out_path)
-
+    path = f'{RES}_u{float(u)}_v{float(v)}/'
     for i in range(2):
         size = [6.5, 3.25] if i == 0 else [3.25, 1.75]
         fig, ax = plt.subplots(figsize=size)
         n = 256  # number of colors to use
-        e_max = 0.06  # cutoff for strains in colormap
+        e_max = 0.01  # cutoff for strains in colormap
         levels = np.linspace(0, e_max, n+1)
 
         cs = ax.contourf(E_X, E_Y, ES,
-                         cmap='coolwarm', levels=levels, extend='max')
+                          cmap='coolwarm', levels=levels, extend='max')
         cs.cmap.set_over('pink')
         cs.set_clim(0, e_max)
         
@@ -335,21 +352,21 @@ if __name__=="__main__":
         plt.tight_layout()
 
         name = 'large' if i == 0 else 'small'
-        plt.savefig(out_path+f'mansfield_solution_{name}.pdf', dpi=600)
+        plt.savefig(out_path+f'mansfield_solution_{name}_ux{float(u)}_v{float(v)}.pdf', dpi=600)
     #%%
     data = {'rays_x': RAYS_X,
             'rays_y': RAYS_Y,
             'E_x': E_X,
             'E_y': E_Y,
             'E_vals': ES}
-    if not os.path.exists('mansfield/'):
-            os.makedirs('mansfield/')
+    if not os.path.exists(f'mansfield/{path}'):
+            os.makedirs(f'mansfield/{path}')
     for key in data.keys():
-        with open(f'mansfield/{key}.npy', 'wb') as f:
+        with open(f'mansfield/{path}{key}.npy', 'wb') as f:
             np.save(f, data[key])
 
    #%% 
-'''
+
 # this stuff  doesn't really work 
 from scipy import optimize
 @np.vectorize
@@ -361,7 +378,7 @@ X0_, Y_ = x_to_x0(X0, Y)
 plt.plot(X0_,Y_)
     # sp.nsolve(x0 + np.cos(float(x0_to_alpha(x0)))*(calc_eta(x0, 0) - calc_eta(x0,y)) - x)
 #%%
-
+'''
 
 @np.vectorize
 def alpha_eta_to_xy(alpha, eta):
