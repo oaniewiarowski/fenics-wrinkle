@@ -11,7 +11,7 @@ import dolfin as df
 from dolfin import Constant, project, dot
 import ufl
 import fenics_optim as fo
-from fenicsmembranes.parametric_membrane import ParametricMembrane
+from fenics_wrinkle.parametric_membrane import ParametricMembrane
 from fenics_wrinkle.materials.svk import SVKMembrane
 from fenics_wrinkle.io import WrinklePlotter
 from fenics_wrinkle.pressure import linear_volume_potential_split
@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 
 # To add small radial displacement to simulate hoop prestress
 HOOP_PRESTRESS = True
-LOAD = 'asymmetric'
+LOAD = 'symmetric'
 
 R_f = 10  # m
 t = 0.005  # 5 mm
@@ -170,9 +170,6 @@ input_dict = {
         'mesh': geo.mesh,
         'geometry': geo,
         'thickness': t,
-        'material': 'SVK',
-        'mu': mu,
-        'lmbda': lamb,
         'output_file_path': f'{LOAD}/wind',
         'pressure': p,
         'Boundary Conditions': pinnedBC,
@@ -193,24 +190,10 @@ if LOAD == "asymmetric":
                              df.FunctionSpace(mem.mesh, 'CG', 1)))
 
 # Write intial inflation stresses
-mem.inflate(p)
+
 mosek_inflate(mem, p, max_iter=4)
-i, j, l, m = ufl.indices(4)
-S = df.as_tensor(mem.material.A_[i, j, l, m]*mem.E[l, m], [i, j])
+mem.gas.setup()
 
-F_n = mem.F_n
-F_nsup = df.as_tensor([mem.gsup1, mem.gsup2]).T
-sigma = S*F_n.T*F_n
-
-S1, S2 = eigenvalue(sigma)
-S1 = project(S1, df.FunctionSpace(mem.mesh, 'CG',1))
-S1.rename('S_1_initial', 'S_1_initial')
-mem.io.add_extra_output_function(S1)
-S2 = project(S2, df.FunctionSpace(mem.mesh, 'CG',1))
-S2.rename('S_2_initial', 'S_2_initial')
-mem.io.add_extra_output_function(S2)
-mem.io.write_fields()
-del mem.io.xdmf.extra_functions[:]
 
 # %%
 output_dir = f"{LOAD}/{LOAD}_mosek_output"

@@ -22,11 +22,10 @@ class INHMembrane(ConvexFunction):
     psi = tr(C) + 1/det(C)
     """
 
-    def __init__(self, u, mem, g1_bar=None, g2_bar=None, **kwargs):
+    def __init__(self, u, mem, mu, **kwargs):
         self.mem = mem
+        self.mu = Constant(mu)
         ConvexFunction.__init__(self, u, parameters=None, **kwargs)
-        self.g1_bar = g1_bar
-        self.g2_bar = g2_bar
 
     def conic_repr(self, u):
 
@@ -78,7 +77,7 @@ class INHMembrane(ConvexFunction):
     def evaluate(self):
         mem = self.mem
         I_C = tr(self.C_bar_el) + 1/det(self.C_bar_el)
-        energy = 0.5*mem.material.mu*(I_C - Constant(mem.nsd))
+        energy = 0.5*self.mu*(I_C - Constant(mem.nsd))
         return assemble(mem.thickness*energy*mem.J_A*dx(mem.mesh),
                         form_compiler_parameters={"quadrature_degree": self.degree})
 
@@ -89,7 +88,7 @@ class INHMembrane(ConvexFunction):
         gsup = inv(self.C_n_el)
         S = as_tensor(mem.C_0_sup[i, j] - det(mem.C_0)/det(self.C_n_el)*gsup[i, j],
                       [i, j])
-        return mem.material.mu*S
+        return self.mu*S
 
     def get_cauchy_stress(self):
         mem = self.mem

@@ -11,7 +11,7 @@ from dolfin import dot, cross, sqrt, det, project, dx, Constant, FunctionSpace
 import numpy as np
 import sympy as sp
 import json
-from fenicsmembranes.parametric_membrane import ParametricMembrane
+from fenics_wrinkle.parametric_membrane import ParametricMembrane
 from fenics_wrinkle.utils import expand_ufl, eigenvalue
 import fenics_wrinkle.geometry.sphere as sphere
 from fenics_wrinkle.materials.INH import INHMembrane
@@ -21,7 +21,7 @@ from matplotlib import rc_file
 rc_file('../submission/journal_rc_file.rc')
 import matplotlib.pyplot as plt
 
-INTERVALS = 6
+INTERVALS = 5
 R = 1
 mu = 500
 T = 0.01
@@ -249,8 +249,8 @@ def mosek_inflate(self, p, i=0, max_iter=100, tol=1e-4):
             _ = prob.add_var(self.V, bc=self.bc)
             prob.var[0] = u
 
-            self.energy = energy = INHMembrane(u, self, degree=2)
-            prob.add_convex_term(self.thickness*self.material.mu/2*self.J_A*energy)
+            self.energy = energy = INHMembrane(u, self, mu, degree=2)
+            prob.add_convex_term(self.thickness*mu/2*self.J_A*energy)
 
             U_air_list = linear_volume_potential(self, p)
             print(type(U_air_list[0]))
@@ -282,13 +282,9 @@ def run_test():
             'mesh': mesh,
             'geometry': geo,
             'thickness': T,
-            'material': 'Incompressible NeoHookean',
-            'mu': mu,
-            'cylindrical': True,
             'pressure': p_max,
             'Boundary Conditions': sphere.pinnedBCMembrane,
-            'pbc': pbc,
-            'inflation_solver': 'Custom Newton'}
+            'pbc': pbc}
 
     input_dict['output_file_path'] = 'sphere_inflate'
     struc = ParametricMembrane(input_dict)

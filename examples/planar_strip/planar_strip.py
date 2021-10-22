@@ -5,10 +5,11 @@ Created on Mon May 10 22:06:55 2021
 
 @author: alexanderniewiarowski
 """
+
 import dolfin as df
-from dolfin import Constant, near, project, det, sqrt, dx, assemble
+from dolfin import Constant, near, project, det, sqrt, assemble
 import fenics_optim as fo
-from fenicsmembranes.parametric_membrane import ParametricMembrane
+from fenics_wrinkle.parametric_membrane import ParametricMembrane
 import matplotlib.pyplot as plt
 import numpy as np
 from fenics_wrinkle.bm_data import KannoIsotropic
@@ -36,16 +37,19 @@ def right(x, on_boundary):
 def bnd(x, on_boundary):
     return on_boundary
 
+
 ux = 2
 u_y = df.Expression(('x[1]*(-10/100)'), degree=1)
 
 
 class Geometry:
     def __init__(self):
-        self.gamma = project(df.Expression(('x[0]', 'x[1]', 0), degree=1), df.VectorFunctionSpace(mesh, 'CG', 1, dim=3))
-        self.Gsub1 = project(Constant((1, 0, 0)), df.VectorFunctionSpace(mesh, 'CG', 1, dim=3))
-        self.Gsub2 = project(Constant((0, 1, 0)), df.VectorFunctionSpace(mesh, 'CG', 1, dim=3))
-
+        self.gamma = project(df.Expression(('x[0]', 'x[1]', 0), degree=1),
+                             df.VectorFunctionSpace(mesh, 'CG', 1, dim=3))
+        self.Gsub1 = project(Constant((1, 0, 0)),
+                             df.VectorFunctionSpace(mesh, 'CG', 1, dim=3))
+        self.Gsub2 = project(Constant((0, 1, 0)),
+                             df.VectorFunctionSpace(mesh, 'CG', 1, dim=3))
 
 UX = Constant(0)
 UY = Constant(0)
@@ -55,15 +59,8 @@ def bc(mem):
           df.DirichletBC(mem.V.sub(0), UX, right),
           df.DirichletBC(mem.V.sub(1), Constant(0), bottom),
           df.DirichletBC(mem.V.sub(1), UY, top),
-          df.DirichletBC(mem.V.sub(2),  Constant(0), bnd)]
-
-    # c = -5
-    # bc = [DirichletBC(mem.V.sub(1), Constant(c), bottom),
-    #       DirichletBC(mem.V.sub(0), Constant(c), left),
-    #       DirichletBC(mem.V.sub(0), Constant(-c), right),
-    #       DirichletBC(mem.V.sub(1), Constant(-c), top) ]
+          df.DirichletBC(mem.V.sub(2), Constant(0), bnd)]
     return bc
-
 
 
 T_0 = []
@@ -75,7 +72,10 @@ ELASTIC_WIDTH = []
 h_1 = bm.t*(200/203)
 h_crit = 0.5*(bm.t+h_1)
 u_y_crit = bm.height - 500/203/h_crit
-uys = np.concatenate((np.zeros(1), np.linspace(0, 1, 11), np.array([1.5,2]), np.array([u_y_crit])))
+uys = np.concatenate((np.zeros(1),
+                      np.linspace(0, 1, 11),
+                      np.array([1.5, 2]),
+                      np.array([u_y_crit])))
 uys.sort()
 # uys = np.concatenate((np.zeros(1), np.linspace(0, .85, 4), np.array([1,2,3])))
 
@@ -83,9 +83,6 @@ uys.sort()
 input_dict = {'mesh': mesh,
               'geometry': Geometry(),
               'thickness': bm.t,
-              'material': 'Incompressible NeoHookean',
-              'mu': bm.mu,
-              'cylindrical': True,
               'output_file_path': 'results/planar_strip',
               'pressure': 0,
               'Boundary Conditions': bc}
@@ -116,7 +113,7 @@ for i, uy in enumerate(uys):
     prob.var[0] = mem.u   # replace
     u = mem.u
 
-    energy = INHMembrane(u, mem, degree=3)
+    energy = INHMembrane(u, mem, bm.mu, degree=3)
     prob.add_convex_term(bm.t*bm.mu/2*energy)
     prob.parameters["presolve"] = True
     prob.optimize()
@@ -150,7 +147,7 @@ for i, uy in enumerate(uys):
                                 io.Vs, form_compiler_parameters=io.fcp)
     ELASTIC_WIDTH.append(assemble(elastic_length('-')*dS(1),
                                   form_compiler_parameters=io.fcp))
-    
+
 results = {"T_0": T_0,
            "T_REF": T_REF,
            "T_ELASTIC": T_ELASTIC,
