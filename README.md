@@ -19,7 +19,7 @@ and install the package as editable:
 
 `pip3 install -e`.
 
-Replace the following two files with modified versions in this repo:
+Replace the following two files in `fenics-optim` with modified versions included with `fenics-wrinkle`:
 
 `mosek_io.py`
 
